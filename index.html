@@ -14,7 +14,7 @@
 *{box-sizing:border-box}
 html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 body{min-height:100vh;background:radial-gradient(1200px 500px at 50% -200px,#1b2a40 0%,var(--bg) 70%) fixed}
-.wrap{max-width:860px;margin:0 auto;padding:16px 16px 40px}
+.wrap{max-width:1180px;margin:0 auto;padding:16px 16px 40px}
 .logo{display:flex;justify-content:center;gap:clamp(3px,1vw,6px);margin:6px 0 6px;font-size:inherit;letter-spacing:0}
 .lt{--s:clamp(30px,9vw,46px);width:var(--s);height:var(--s);display:grid;place-items:center;font-weight:900;font-size:calc(var(--s)*.58);line-height:1;color:#f0e6d2;
   clip-path:polygon(18% 0,82% 0,100% 18%,100% 82%,82% 100%,18% 100%,0 82%,0 18%);position:relative;animation:lpop .5s both;text-shadow:0 1px 0 rgba(0,0,0,.35)}
@@ -30,6 +30,25 @@ nav{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-bottom:16p
 nav button{display:flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--line);color:var(--ink);padding:8px 12px;border-radius:999px;font:inherit;font-weight:600;cursor:pointer}
 nav button[aria-pressed="true"]{border-color:var(--gold);background:#2a2416;color:var(--gold2)}
 nav button .ok{color:var(--green);font-size:13px}
+
+.cols{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;align-items:start}
+@media (min-width:980px){.cols.has{grid-template-columns:minmax(0,1fr) 340px}}
+#social{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px}
+#social h3{margin:0 0 8px;font-size:15px;color:var(--gold2);display:flex;justify-content:space-between;align-items:center}
+.stabs{display:flex;justify-content:space-between;gap:8px;border-bottom:1px solid var(--line);margin-bottom:8px}
+.stabs div{display:flex;gap:12px}
+.stabs button{background:none;border:0;color:var(--muted);font:inherit;font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;padding:6px 0;border-bottom:2px solid transparent;cursor:pointer}
+.stabs button[aria-pressed="true"]{color:var(--ink);border-color:var(--gold)}
+.srow{display:flex;align-items:center;gap:10px;padding:8px;border-radius:10px}
+.srow.me{background:var(--panel2);box-shadow:inset 0 0 0 1px var(--gold)}
+.srow .rk{width:22px;text-align:center;font-weight:800;color:var(--muted)}
+.srow img{width:34px;height:34px;border-radius:50%;background:#000}
+.srow .nm{flex:1;min-width:0;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.srow .nm small{display:block;font-weight:500;color:var(--muted);font-size:12px}
+.srow .tm{font-variant-numeric:tabular-nums;color:var(--muted);font-size:13px}
+.srow .ok{color:var(--green);font-weight:800}
+.sempty{color:var(--muted);font-size:13px;text-align:center;padding:14px 4px}
+.invb{background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:999px;padding:5px 10px;font:inherit;font-size:12px;font-weight:700;cursor:pointer}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:16px;margin-bottom:14px}
 .card h2{margin:0 0 4px;font-size:18px;text-align:center}
 .card .hint{color:var(--muted);text-align:center;margin:0;font-size:13.5px}
@@ -91,7 +110,7 @@ footer{color:#5d6b80;font-size:11px;text-align:center;margin-top:24px;line-heigh
   <h1 class="logo" aria-label="Leagledle"><span class="lt g" style="animation-delay:0.00s">L</span><span class="lt d" style="animation-delay:0.07s">E</span><span class="lt t" style="animation-delay:0.14s">A</span><span class="lt g" style="animation-delay:0.21s">G</span><span class="lt d" style="animation-delay:0.28s">L</span><span class="lt t" style="animation-delay:0.35s">E</span><span class="lt g" style="animation-delay:0.42s">D</span><span class="lt g" style="animation-delay:0.49s">L</span><span class="lt g" style="animation-delay:0.56s">E</span></h1>
   <p class="sub" id="sub">Guess today's League of Legends champion</p>
   <nav id="modes"></nav>
-  <div id="game"><p class="msg">Loading champions…</p></div>
+  <div class="cols"><div id="game"><p class="msg">Loading champions…</p></div><aside id="social" hidden></aside></div>
   <footer>Leagledle isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties. Riot Games and all associated properties are trademarks or registered trademarks of Riot Games, Inc.</footer>
 </div>
 <script type="module">
@@ -101,8 +120,27 @@ footer{color:#5d6b80;font-size:11px;text-align:center;margin-top:24px;line-heigh
 //   /npm     -> cdn.jsdelivr.net/npm           (Discord's Embedded App SDK)
 const IN_DISCORD=/\.discordsays\.com$/.test(location.hostname);
 const DD=IN_DISCORD?"/ddragon":"https://ddragon.leagueoflegends.com";
+// Social layer (only inside Discord): who you are, which channel/server, live progress and leaderboards.
+const API=IN_DISCORD?"/api":null;
+let SDK=null,ME=null,SESSION=null,CTX={channel:null,guild:null};
+const SOC={tab:"live",scope:"channel",rows:[],msg:"",timer:null};
 if(IN_DISCORD){
-  import("/npm/@discord/embedded-app-sdk@2.1.0/+esm").then(({DiscordSDK})=>{const sdk=new DiscordSDK(location.hostname.split(".")[0]);return sdk.ready();}).catch(e=>console.warn("Discord SDK",e));
+  (async()=>{
+    try{
+      const {DiscordSDK}=await import("/npm/@discord/embedded-app-sdk@2.1.0/+esm");
+      const clientId=location.hostname.split(".")[0];
+      SDK=new DiscordSDK(clientId);await SDK.ready();
+      CTX={channel:SDK.channelId||null,guild:SDK.guildId||null};
+      SOC.msg="Signing in…";renderSocial();
+      const {code}=await SDK.commands.authorize({client_id:clientId,response_type:"code",state:"",prompt:"none",scope:["identify"]});
+      const r=await (await fetch(API+"/token",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({code})})).json();
+      if(!r.access_token)throw new Error(r.error||"login failed");
+      await SDK.commands.authenticate({access_token:r.access_token});
+      ME=r.user;SESSION=r.session;SOC.msg="";
+      if(S&&!S.random)pushProgress();
+      refreshSocial();
+    }catch(e){console.warn("Discord",e);SOC.msg="Couldn't sign in with Discord, so the leaderboard is off. Close and reopen the activity to try again.";renderSocial();}
+  })();
 }
 
 // name|gender|positions|species|resource|range|regions|year|emojis|quote
@@ -305,12 +343,14 @@ async function init(){
 }
 function pool(m){return m==="classic"?CH.filter(c=>c.info):m==="quote"?CH.filter(c=>c.info&&c.info.quote):m==="emoji"?CH.filter(c=>c.info):CH;}
 function pick(m,seedStr){const P=pool(m);const r=rng(hash(m+"|"+seedStr));return {target:P[Math.floor(r()*P.length)].name,r1:r(),r2:r(),r3:r()};}
+const skey=()=>(S&&S.random?"cg-r-":"cg-")+mode;
 function start(){
   const key="cg-"+mode;let st=load(key);
-  if(!st||(st.day!==today()&&!st.random)||!BY[st.target]){const p=pick(mode,today());st={day:today(),random:false,target:p.target,r:[p.r1,p.r2,p.r3],guesses:[],done:false};save(key,st);}
-  S=st;save("cg-mode",mode);renderNav();render();
+  if(!st||st.random||st.day!==today()||!BY[st.target]){const p=pick(mode,today());st={day:today(),random:false,target:p.target,r:[p.r1,p.r2,p.r3],guesses:[],done:false,started:Date.now()};save(key,st);}
+  if(!st.started){st.started=Date.now();save(key,st);}
+  S=st;save("cg-mode",mode);renderNav();render();refreshSocial();
 }
-function randomRound(){const seed=String(Math.random());const p=pick(mode,seed);S={day:today(),random:true,target:p.target,r:[p.r1,p.r2,p.r3],guesses:[],done:false};save("cg-"+mode,S);render();}
+function randomRound(){const seed=String(Math.random());const p=pick(mode,seed);S={day:today(),random:true,target:p.target,r:[p.r1,p.r2,p.r3],guesses:[],done:false};save(skey(),S);render();}
 function dailyDone(m){const st=load("cg-"+m);return st&&st.day===today()&&!st.random&&st.done;}
 function renderNav(){$("modes").innerHTML=MODES.map(([k,l,e])=>`<button type="button" data-mode="${k}" aria-pressed="${mode===k}">${e} ${l}${dailyDone(k)?' <span class="ok">✓</span>':""}</button>`).join("");}
 $("modes").addEventListener("click",e=>{const b=e.target.closest("[data-mode]");if(!b)return;mode=b.dataset.mode;start();});
@@ -369,7 +409,7 @@ async function afterRender(t,wrong){
     const all=[{k:"Passive",n:d.passive.name,src:`${DD}/cdn/${V}/img/passive/${d.passive.image.full}`},...d.spells.map((s,i)=>({k:"QWER"[i],n:s.name,src:`${DD}/cdn/${V}/img/spell/${s.image.full}`}))];
     const a=all[Math.floor(S.r[0]*all.length)];const im=$("abImg");if(im){im.src=a.src;im.style.transform=S.done?"none":`rotate(${[0,90,180,270][Math.floor(S.r[1]*4)]}deg)`;}
     S.extra=`${a.k}: ${a.n}`;if(S.done){const p=document.querySelector(".win p");if(p)p.textContent=`${a.k}: ${a.n} · Found in ${S.guesses.length} guess${S.guesses.length===1?"":"es"}`;}
-    const gt=$("grayT");if(gt)gt.onchange=()=>{S.gray=gt.checked;save("cg-"+mode,S);if(im)im.classList.toggle("gray",gt.checked&&!S.done);};
+    const gt=$("grayT");if(gt)gt.onchange=()=>{S.gray=gt.checked;save(skey(),S);if(im)im.classList.toggle("gray",gt.checked&&!S.done);};
   }
   if(mode==="splash"){
     const d=await detail(t).catch(()=>null);if(!d||mode!=="splash")return;
@@ -418,11 +458,48 @@ function bindInput(){
 }
 function guess(name){
   if(S.done||S.guesses.includes(name))return;
-  S.guesses.push(name);if(name===S.target)S.done=true;
-  save("cg-"+mode,S);renderNav();render();
+  S.guesses.push(name);if(name===S.target){S.done=true;if(!S.random)S.finished=Date.now();}
+  save(skey(),S);renderNav();render();
+  if(!S.random){pushProgress();setTimeout(refreshSocial,400);}
   if(!S.done&&matchMedia("(hover:hover)").matches){const i=$("gIn");if(i)i.focus();}
   if(S.done)window.scrollTo({top:0,behavior:"smooth"});
 }
+// ---------- social panel ----------
+async function api(path,opts={}){const r=await fetch(API+path,{...opts,headers:{"Content-Type":"application/json",...(SESSION?{Authorization:"Bearer "+SESSION}:{}),...(opts.headers||{})}});return r.json();}
+function pushProgress(){if(!API||!SESSION||!S||S.random)return;api("/progress",{method:"POST",body:JSON.stringify({mode,day:S.day,guesses:S.guesses.length,done:S.done,started:S.started,finished:S.finished||null,channel:CTX.channel,guild:CTX.guild})}).catch(()=>{});}
+const scopeId=()=>SOC.scope==="server"?CTX.guild:CTX.channel;
+async function refreshSocial(){
+  if(!IN_DISCORD)return;
+  clearTimeout(SOC.timer);
+  if(SESSION&&scopeId()){
+    try{
+      const q=`mode=${mode}&scope=${SOC.scope}&id=${scopeId()}`;
+      const r=SOC.tab==="live"?await api(`/live?${q}&day=${today()}`):await api(`/board?${q}&period=${SOC.tab==="all"?"all":"season"}`);
+      SOC.rows=r.rows||[];SOC.now=r.now||Date.now();SOC.at=Date.now();
+    }catch(_){}
+  }
+  renderSocial();
+  if(SOC.tab==="live")SOC.timer=setTimeout(refreshSocial,5000);
+}
+const avatar=u=>u.avatar?`/discordcdn/avatars/${u.id}/${u.avatar}.png?size=64`:`/discordcdn/embed/avatars/${Number((BigInt(u.id)>>22n)%6n)}.png`;
+const dur=ms=>{const t=Math.max(0,Math.round(ms/1000)),h=Math.floor(t/3600),m=Math.floor(t%3600/60),x=t%60;return (h?h+":"+String(m).padStart(2,"0"):m)+":"+String(x).padStart(2,"0");};
+function renderSocial(){
+  const el=$("social");if(!IN_DISCORD){el.hidden=true;return;}
+  el.hidden=false;el.parentElement.classList.add("has");
+  const lbl=MODES.find(m=>m[0]===mode)[1];
+  let h=`<h3><span>${lbl} · ${SOC.tab==="live"?"today":SOC.tab==="season"?"this month":"all time"}</span>${SDK?`<button type="button" class="invb" id="invB">+ Invite</button>`:""}</h3>
+  <div class="stabs"><div>${[["live","Live"],["season","Season"],["all","All-time"]].map(([k,l])=>`<button type="button" data-stab="${k}" aria-pressed="${SOC.tab===k}">${l}</button>`).join("")}</div><div>${[["channel","Channel"],["server","Server"]].map(([k,l])=>`<button type="button" data-sscope="${k}" aria-pressed="${SOC.scope===k}"${k==="server"&&!CTX.guild?" disabled":""}>${l}</button>`).join("")}</div></div>`;
+  if(SOC.msg)h+=`<p class="sempty">${esc(SOC.msg)}</p>`;
+  else if(!SOC.rows.length)h+=`<p class="sempty">${SOC.tab==="live"?"Nobody has played today's "+lbl+" here yet. Be the first!":"No wins here yet."}</p>`;
+  else h+=SOC.rows.map((u,i)=>{const me=ME&&u.id===ME.id;let right,sub;
+    if(SOC.tab==="live"){const t=u.done?u.finished_at-u.started_at:(SOC.now||Date.now())-u.started_at+(Date.now()-(SOC.at||Date.now()));right=`<span class="tm">${dur(t)}</span>`;sub=u.done?`<span class="ok">✓</span> ${u.guesses} guess${u.guesses==1?"":"es"}`:`Playing · ${u.guesses} guess${u.guesses==1?"":"es"}`;}
+    else{right=`<span class="tm">${u.wins} win${u.wins==1?"":"s"}</span>`;sub=`avg ${u.avg_guesses} · best ${u.best}`;}
+    return `<div class="srow${me?" me":""}"><span class="rk">${i+1}</span><img src="${avatar(u)}" alt=""><span class="nm">${esc(u.name)}<small>${sub}</small></span>${right}</div>`;}).join("");
+  el.innerHTML=h;
+  const ib=$("invB");if(ib)ib.onclick=()=>SDK.commands.openInviteDialog().catch(()=>{});
+}
+$("social").addEventListener("click",e=>{const t=e.target.closest("[data-stab]"),c=e.target.closest("[data-sscope]");if(t){SOC.tab=t.dataset.stab;SOC.rows=[];refreshSocial();}else if(c&&!c.disabled){SOC.scope=c.dataset.sscope;SOC.rows=[];refreshSocial();}});
+setInterval(()=>{if(IN_DISCORD&&SOC.tab==="live"&&SOC.rows.some(r=>!r.done))renderSocial();},1000);
 init();
 </script>
 </body>
