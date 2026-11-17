@@ -142,7 +142,16 @@ const IN_DISCORD=/\.discordsays\.com$/.test(location.hostname);
 const DD=IN_DISCORD?"/ddragon":"https://ddragon.leagueoflegends.com";
 // Social layer (only inside Discord): who you are, which channel/server, live progress and leaderboards.
 const API=IN_DISCORD?"/api":null;
-let SDK=null,ME=null,SESSION=null,CTX={channel:null,guild:null};
+let SDK=null,ME=null,SESSION=null,AUTHED=false,CTX={channel:null,guild:null};
+async function discordLogin(clientId){
+  SOC.msg="Signing in…";renderSocial();
+  const {code}=await SDK.commands.authorize({client_id:clientId,response_type:"code",state:"",prompt:"none",scope:["identify"]});
+  const r=await (await fetch(API+"/token",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({code})})).json();
+  if(!r.access_token)throw new Error(r.error||"login failed");
+  await SDK.commands.authenticate({access_token:r.access_token});AUTHED=true;
+  ME=r.user;SESSION=r.session;
+  save("cg-auth",{user:r.user,session:r.session,at:r.access_token,atExp:Date.now()+(r.expires_in?r.expires_in*1000:6*864e5)-36e5});
+}
 const SOC={tab:"live",scope:"channel",rows:[],msg:"",timer:null};
 if(IN_DISCORD){
   (async()=>{
@@ -151,12 +160,14 @@ if(IN_DISCORD){
       const clientId=location.hostname.split(".")[0];
       SDK=new DiscordSDK(clientId);await SDK.ready();
       CTX={channel:SDK.channelId||null,guild:SDK.guildId||null};
-      SOC.msg="Signing in…";renderSocial();
-      const {code}=await SDK.commands.authorize({client_id:clientId,response_type:"code",state:"",prompt:"none",scope:["identify"]});
-      const r=await (await fetch(API+"/token",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({code})})).json();
-      if(!r.access_token)throw new Error(r.error||"login failed");
-      await SDK.commands.authenticate({access_token:r.access_token});
-      ME=r.user;SESSION=r.session;SOC.msg="";
+      // Remember the login so Discord doesn't ask to authorize every time the game opens.
+      const saved=load("cg-auth"),now=Date.now();
+      let exp=0;try{exp=JSON.parse(atob(saved.session.split(".")[0].replace(/-/g,"+").replace(/_/g,"/"))).exp;}catch(_){}
+      if(saved&&saved.user&&exp>now+864e5){
+        ME=saved.user;SESSION=saved.session;
+        if(saved.at&&saved.atExp>now)SDK.commands.authenticate({access_token:saved.at}).then(()=>{AUTHED=true;},()=>{});
+      }else await discordLogin(clientId);
+      SOC.msg="";
       if(S&&!S.random)pushProgress();
       refreshSocial();
     }catch(e){console.warn("Discord",e);SOC.msg="Couldn't sign in with Discord, so the leaderboard is off. Close and reopen the activity to try again.";renderSocial();}
@@ -543,7 +554,10 @@ function guess(name){
   if(S.done)window.scrollTo({top:0,behavior:"smooth"});
 }
 // ---------- social panel ----------
-async function api(path,opts={}){const r=await fetch(API+path,{...opts,headers:{"Content-Type":"application/json",...(SESSION?{Authorization:"Bearer "+SESSION}:{}),...(opts.headers||{})}});return r.json();}
+async function api(path,opts={},retry=true){const r=await fetch(API+path,{...opts,headers:{"Content-Type":"application/json",...(SESSION?{Authorization:"Bearer "+SESSION}:{}),...(opts.headers||{})}});
+  // A saved login that the server no longer accepts: sign in again once.
+  if(r.status===401&&retry&&SDK){try{localStorage.removeItem("cg-auth");}catch(_){}try{await discordLogin(location.hostname.split(".")[0]);return api(path,opts,false);}catch(_){}}
+  return r.json();}
 function pushProgress(){if(!API||!SESSION||!S||S.random)return;api("/progress",{method:"POST",body:JSON.stringify({mode,day:S.day,guesses:S.guesses.length,done:S.done,started:S.started,finished:S.finished||null,helps:S.helps||[],bonus:S.bonus==null?null:S.bonus,channel:CTX.channel,guild:CTX.guild})}).catch(()=>{});}
 const scopeId=()=>SOC.scope==="server"?CTX.guild:CTX.channel;
 async function refreshSocial(){
@@ -589,7 +603,7 @@ function renderSocial(){
     else{right=`<span class="tm"><b>${u.points}</b> pts</span>`;sub=`${u.wins} win${u.wins==1?"":"s"} · avg ${u.avg_guesses} guesses`;}
     return `<div class="srow${me?" me":""}"><span class="rk">${i+1}</span><img src="${avatar(u)}" alt=""><span class="nm">${esc(u.name)}<small>${sub}</small></span>${right}</div>`;}).join("");
   el.innerHTML=h;
-  const ib=$("invB");if(ib)ib.onclick=()=>SDK.commands.openInviteDialog().catch(()=>{});
+  const ib=$("invB");if(ib)ib.onclick=async()=>{try{if(!AUTHED)await discordLogin(location.hostname.split(".")[0]);await SDK.commands.openInviteDialog();}catch(_){}};
 }
 $("social").addEventListener("click",e=>{const t=e.target.closest("[data-stab]"),c=e.target.closest("[data-sscope]");if(t){SOC.tab=t.dataset.stab;SOC.rows=[];refreshSocial();}else if(c&&!c.disabled){SOC.scope=c.dataset.sscope;SOC.rows=[];refreshSocial();}});
 setInterval(()=>{if(IN_DISCORD&&SOC.tab==="live"&&SOC.rows.some(r=>!r.done))renderSocial();},1000);
