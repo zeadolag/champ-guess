@@ -33,6 +33,7 @@ export default {
     try {
       if (path === "/interactions" && req.method === "POST") return await interactions(req, env, ctx);
       if (path === "/setup" && req.method === "GET") return await setup(url, env);
+      if (path === "/bot-check" && req.method === "GET") return json(await botCheck(env));
       if (path === "/recap-now" && req.method === "GET") { if (url.searchParams.get("key") !== env.SESSION_KEY) return json({ error: "wrong key" }, 403); return json(await dailyRecaps(env, true)); }
       if (path === "/token" && req.method === "POST") return await token(req, env);
       if (path === "/progress" && req.method === "POST") return await progress(req, env, ctx);
@@ -195,11 +196,12 @@ const botAuth = env => env.DISCORD_BOT_TOKEN ? "Bot " + env.DISCORD_BOT_TOKEN : 
 // Discord signs every interaction; reject anything that isn't really from Discord.
 async function verify(req, env, body) {
   const sig = req.headers.get("X-Signature-Ed25519"), ts = req.headers.get("X-Signature-Timestamp");
-  if (!sig || !ts || !env.DISCORD_PUBLIC_KEY) return false;
+  const pk = String(env.DISCORD_PUBLIC_KEY || "").trim().toLowerCase();
+  if (!sig || !ts || !/^[0-9a-f]{64}$/.test(pk)) return false;
   const hex = h => new Uint8Array(h.match(/.{2}/g).map(x => parseInt(x, 16)));
   for (const alg of [{ name: "Ed25519" }, { name: "NODE-ED25519", namedCurve: "NODE-ED25519" }]) {
     try {
-      const key = await crypto.subtle.importKey("raw", hex(env.DISCORD_PUBLIC_KEY), alg, false, ["verify"]);
+      const key = await crypto.subtle.importKey("raw", hex(pk), alg, false, ["verify"]);
       return await crypto.subtle.verify(alg.name === "Ed25519" ? "Ed25519" : alg, key, hex(sig), new TextEncoder().encode(ts + body));
     } catch (_) {}
   }
@@ -314,6 +316,24 @@ async function dailyRecaps(env, force) {
     out.push({ channel: ch, ok: r.ok, status: r.status });
   }
   return { sent: out };
+}
+
+// Shows what's missing for the bot, without revealing any secrets.
+async function botCheck(env) {
+  const pk = String(env.DISCORD_PUBLIC_KEY || "").trim();
+  let ed = "unknown";
+  for (const alg of [{ name: "Ed25519" }, { name: "NODE-ED25519", namedCurve: "NODE-ED25519" }]) {
+    try { await crypto.subtle.importKey("raw", new Uint8Array(32), alg, false, ["verify"]); ed = alg.name; break; } catch (_) {}
+  }
+  let bot = "missing";
+  if (env.DISCORD_BOT_TOKEN) { const r = await discord(env, "GET", "/users/@me", null, botAuth(env)); bot = r.ok ? "works (" + (r.data && r.data.username) + ")" : "set but Discord rejected it (" + r.status + ")"; }
+  return {
+    public_key: !pk ? "missing" : /^[0-9a-fA-F]{64}$/.test(pk) ? "looks right" : `wrong format: ${pk.length} characters, should be 64 letters/numbers`,
+    public_key_matches_app: pk && env.DISCORD_CLIENT_ID && pk === env.DISCORD_CLIENT_ID ? "NO: this is the Application ID, use the Public Key instead" : "ok",
+    signature_check: ed,
+    bot_token: bot,
+    database_tables: await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().then(r => r.results.map(x => x.name).join(", ")).catch(e => "error: " + e.message),
+  };
 }
 
 // One-time setup: make the Launch command come to this server, so the bot can post its card.
