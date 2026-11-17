@@ -36,3 +36,19 @@ CREATE TABLE IF NOT EXISTS recaps (
   day TEXT NOT NULL,
   PRIMARY KEY (channel_id, day)
 );
+CREATE TABLE IF NOT EXISTS ratings (
+  scope_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  elo REAL NOT NULL,
+  games INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (scope_id, user_id)
+);
+CREATE TABLE IF NOT EXISTS elo_log (
+  user_id TEXT NOT NULL,
+  scope_id TEXT NOT NULL,
+  mode TEXT NOT NULL,
+  day TEXT NOT NULL,
+  delta REAL NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, scope_id, mode, day)
+);

@@ -92,6 +92,8 @@ nav button .ok{color:var(--green);font-size:13px}
 .chead,.crow{display:grid;grid-template-columns:repeat(8,minmax(74px,1fr));gap:6px;min-width:640px}
 .chead div{font-size:11.5px;color:var(--muted);text-align:center;padding-bottom:4px;border-bottom:1px solid var(--line);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
 .crow{margin-top:6px}
+.rpill{display:inline-block;font-size:11px;font-weight:800;padding:1px 7px;border-radius:999px;color:var(--rc);border:1px solid var(--rc);background:color-mix(in srgb,var(--rc) 14%,transparent);letter-spacing:.02em}
+.elo{margin-top:6px;font-weight:600}.elo .rpill{font-size:13px;padding:2px 9px}.elo b.up{color:#3ccf7d}.elo b.dn{color:#ef6a6a}
 .itab .chead,.itab .crow{grid-template-columns:72px 1fr 1fr 2.2fr .8fr 1fr;min-width:560px}
 .crow>div{min-height:64px;border-radius:8px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:12.5px;font-weight:600;padding:4px;line-height:1.2;animation:flip .45s both}
 .crow>div:first-child{background:none;padding:0}
@@ -507,7 +509,7 @@ function guessesHtml(t){
 }
 function winHtml(t){
   const n=S.guesses.length;
-  return `<div class="card win"><img class="big" src="${icon(t)}" alt=""><h2>${esc(t.name)}</h2><p class="wsub">${S.extra&&(mode!=="ability"||S.bonus!=null)?esc(S.extra)+" · ":""}Found in ${n} guess${n===1?"":"es"}</p>${mode==="ability"?bonusHtml():""}<p class="pts">+${total()} points${mode==="ability"&&S.bonus===1?" (incl. +20 bonus)":""}${S.random?" (random rounds don't count)":""}</p>
+  return `<div class="card win"><img class="big" src="${icon(t)}" alt=""><h2>${esc(t.name)}</h2><p class="wsub">${S.extra&&(mode!=="ability"||S.bonus!=null)?esc(S.extra)+" · ":""}Found in ${n} guess${n===1?"":"es"}</p>${mode==="ability"?bonusHtml():""}<p class="pts">+${total()} points${mode==="ability"&&S.bonus===1?" (incl. +20 bonus)":""}${S.random?" (random rounds don't count)":""}</p>${S.elo?(()=>{const a=rankOf(S.elo.after),b=rankOf(S.elo.before),d=Math.round(S.elo.delta*4);return `<p class="elo">${rankPill(S.elo.after)} ${a.lp} LP <b class="${d>=0?"up":"dn"}">${d>=0?"+":""}${d} LP</b>${a.name!==b.name?` · ${S.elo.after>S.elo.before?"Promoted":"Demoted"} from ${esc(b.name)}`:""}</p>`;})():""}
   <div class="btns"><button class="btn pri" id="shareB" type="button">Copy result</button><button class="btn" id="randB" type="button">Play a random one</button>${nextMode()?`<button class="btn" id="nextB" type="button">Next: ${nextMode()[1]}</button>`:""}</div><textarea class="share" id="shareT" rows="5" readonly aria-label="Result to share"></textarea></div>`;
 }
 // Ability bonus: after finding the champion, one try at Passive/Q/W/E/R for +20.
@@ -591,16 +593,25 @@ async function api(path,opts={},retry=true){const r=await fetch(API+path,{...opt
   return r.json();}
 // Send every one of today's puzzles to the server (also ones played before signing in worked).
 function syncAll(){if(!API||!SESSION)return;for(const [m] of MODES){const st=load("cg-"+m);if(!st||st.random||st.day!==today()||!st.guesses||!st.guesses.length)continue;
-  api("/progress",{method:"POST",body:JSON.stringify({mode:m,day:st.day,guesses:st.guesses.length,done:st.done,started:st.started,finished:st.finished||null,helps:st.helps||[],bonus:st.bonus==null?null:st.bonus,channel:CTX.channel,guild:CTX.guild})}).catch(()=>{});}}
-function pushProgress(){if(!API||!SESSION||!S||S.random)return;api("/progress",{method:"POST",body:JSON.stringify({mode,day:S.day,guesses:S.guesses.length,done:S.done,started:S.started,finished:S.finished||null,helps:S.helps||[],bonus:S.bonus==null?null:S.bonus,channel:CTX.channel,guild:CTX.guild})}).catch(()=>{});}
+  api("/progress",{method:"POST",body:JSON.stringify({mode:m,day:st.day,guesses:st.guesses.length,done:st.done,started:st.started,finished:st.finished||null,helps:st.helps||[],bonus:st.bonus==null?null:st.bonus,channel:CTX.channel,guild:CTX.guild})}).then(r=>gotElo(m,st,r)).catch(()=>{});}}
+function pushProgress(){if(!API||!SESSION||!S||S.random)return;api("/progress",{method:"POST",body:JSON.stringify({mode,day:S.day,guesses:S.guesses.length,done:S.done,started:S.started,finished:S.finished||null,helps:S.helps||[],bonus:S.bonus==null?null:S.bonus,channel:CTX.channel,guild:CTX.guild})}).then(r=>{if(S&&!S.random)gotElo(mode,S,r);}).catch(()=>{});}
+// Ranked: Elo shown as League ranks. 1000 = Gold II, 100 Elo per tier, 25 per division, 1 Elo = 4 LP.
+const TIERS=[["Iron","#7d6a63"],["Bronze","#b0714f"],["Silver","#a3adb8"],["Gold","#c8aa6e"],["Platinum","#3fb1a6"],["Emerald","#2fb36b"],["Diamond","#7894ee"],["Master","#b066e0"],["Grandmaster","#e05252"],["Challenger","#f2cb63"]];
+function rankOf(elo){const t=Math.max(0,Math.min(9,Math.floor((elo-650)/100)));
+  if(t>=7)return {tier:TIERS[t][0],col:TIERS[t][1],name:TIERS[t][0],lp:Math.round((elo-1350)*4)};
+  const div=Math.max(0,Math.min(3,Math.floor((elo-650-t*100)/25)));
+  return {tier:TIERS[t][0],col:TIERS[t][1],name:TIERS[t][0]+" "+["IV","III","II","I"][div],lp:Math.max(0,Math.min(99,Math.round((elo-650-t*100-div*25)*4)))};}
+const rankPill=elo=>{const r=rankOf(elo);return `<span class="rpill" style="--rc:${r.col}">${esc(r.name)}</span>`;};
+const ladderId=()=>CTX.guild||CTX.channel;
+function gotElo(m,st,res){if(!res||!res.elo)return;st.elo=res.elo;save("cg-"+m,st);if(m===mode&&S&&!S.random&&S.day===st.day){S.elo=res.elo;render();}if(SOC.tab==="ranked")refreshSocial();}
 const scopeId=()=>SOC.scope==="server"?CTX.guild:CTX.channel;
 async function refreshSocial(){
   if(!IN_DISCORD)return;
   clearTimeout(SOC.timer);
-  if(SESSION&&scopeId()){
+  if(SESSION&&(SOC.tab==="ranked"?ladderId():scopeId())){
     try{
       const q=`mode=${mode}&scope=${SOC.scope}&id=${scopeId()}`;
-      const [r,rc]=await Promise.all([SOC.tab==="recap"?null:SOC.tab==="live"?api(`/live?${q}&day=${today()}`):api(`/board?${q}&period=${SOC.tab==="all"?"all":"season"}`),api(`/recap?scope=${SOC.scope}&id=${scopeId()}&day=${today()}`).catch(()=>null)]);
+      const [r,rc]=await Promise.all([SOC.tab==="recap"?null:SOC.tab==="ranked"?api(`/rank?id=${ladderId()}`):SOC.tab==="live"?api(`/live?${q}&day=${today()}`):api(`/board?${q}&period=${SOC.tab==="all"?"all":"season"}`),api(`/recap?scope=${SOC.scope}&id=${scopeId()}&day=${today()}`).catch(()=>null)]);
       if(r){SOC.rows=r.rows||[];SOC.now=r.now||Date.now();SOC.at=Date.now();}
       if(rc&&!rc.error)SOC.recap=rc;
     }catch(_){}
@@ -627,10 +638,11 @@ function renderSocial(){
   el.hidden=false;el.parentElement.classList.add("has");
   const lbl=MODES.find(m=>m[0]===mode)[1];
   const rc=SOC.recap,stk=rc?`<span class="streak${rc.today?" on":""}" title="Days in a row someone here finished a puzzle${rc.best?` (best: ${rc.best})`:""}">${emo("🔥")} ${rc.streak} day${rc.streak===1?"":"s"}</span>`:"";
-  let h=`<h3><span>${SOC.tab==="recap"?"Last 7 days":`${lbl} · ${SOC.tab==="live"?"today":SOC.tab==="season"?"this month":"all time"}`}</span><span class="h3r">${stk}${SDK?`<button type="button" class="invb" id="invB">+ Invite</button>`:""}</span></h3>
-  <div class="stabs"><div>${[["live","Live"],["season","Season"],["all","All-time"],["recap","Recap"]].map(([k,l])=>`<button type="button" data-stab="${k}" aria-pressed="${SOC.tab===k}">${l}</button>`).join("")}</div><div>${[["channel","Channel"],["server","Server"]].map(([k,l])=>`<button type="button" data-sscope="${k}" aria-pressed="${SOC.scope===k}"${k==="server"&&!CTX.guild?" disabled":""}>${l}</button>`).join("")}</div></div>`;
+  let h=`<h3><span>${SOC.tab==="recap"?"Last 7 days":SOC.tab==="ranked"?(CTX.guild?"Server ladder":"Ladder"):`${lbl} · ${SOC.tab==="live"?"today":SOC.tab==="season"?"this month":"all time"}`}</span><span class="h3r">${stk}${SDK?`<button type="button" class="invb" id="invB">+ Invite</button>`:""}</span></h3>
+  <div class="stabs"><div>${[["live","Live"],["ranked","Ranked"],["season","Season"],["all","All-time"],["recap","Recap"]].map(([k,l])=>`<button type="button" data-stab="${k}" aria-pressed="${SOC.tab===k}">${l}</button>`).join("")}</div><div${SOC.tab==="ranked"?` style="display:none"`:""}>${[["channel","Channel"],["server","Server"]].map(([k,l])=>`<button type="button" data-sscope="${k}" aria-pressed="${SOC.scope===k}"${k==="server"&&!CTX.guild?" disabled":""}>${l}</button>`).join("")}</div></div>`;
   if(SOC.msg)h+=`<p class="sempty">${esc(SOC.msg)}</p>`;
   else if(SOC.tab==="recap")h+=recapHtml(rc);
+  else if(SOC.tab==="ranked")h+=SOC.rows.length?`<p class="rcsum">Solve daily puzzles in fewer guesses than everyone else to climb. Unsolved ones count as a loss.</p>`+SOC.rows.map((u,i)=>{const r=rankOf(u.elo);return `<div class="srow${ME&&u.id===ME.id?" me":""}"><span class="rk">${i+1}</span><img src="${avatar(u)}" alt=""><span class="nm">${esc(u.name)}<small>${rankPill(u.elo)} ${r.lp} LP</small></span><span class="tm">${u.games} game${u.games==1?"":"s"}</span></div>`;}).join(""):`<p class="sempty">No ranked games here yet. Solve a daily puzzle to get your rank (everyone starts in Gold II).</p>`;
   else if(!SOC.rows.length)h+=`<p class="sempty">${SOC.tab==="live"?"Nobody has played today's "+lbl+" here yet. Be the first!":"No wins here yet."}</p>`;
   else h+=SOC.rows.map((u,i)=>{const me=ME&&u.id===ME.id;let right,sub;
     if(SOC.tab==="live"){const t=u.done?u.finished_at-u.started_at:(SOC.now||Date.now())-u.started_at+(Date.now()-(SOC.at||Date.now()));right=`<span class="tm">${dur(t)}</span>`;sub=u.done?`<span class="ok">✓</span> ${u.guesses} guess${u.guesses==1?"":"es"} · ${u.points} pts`:`Playing · ${u.guesses} guess${u.guesses==1?"":"es"}`;}

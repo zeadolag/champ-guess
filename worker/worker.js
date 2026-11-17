@@ -40,6 +40,7 @@ export default {
       if (path === "/live" && req.method === "GET") return await live(url, env);
       if (path === "/board" && req.method === "GET") return await board(url, env);
       if (path === "/recap" && req.method === "GET") return await recap(url, env);
+      if (path === "/rank" && req.method === "GET") return await rankBoard(url, env);
       if (path === "/" ) return json({ ok: true, name: "Leagledle API" });
       return json({ error: "not found" }, 404);
     } catch (e) {
@@ -90,6 +91,7 @@ async function progress(req, env, ctx) {
   const helps = Array.isArray(b.helps) ? b.helps.filter(h => HELPS.has(h)) : [];
   const bonus = done && b.mode === "ability" && (b.bonus === 0 || b.bonus === 1) ? b.bonus : null;
   const points = done ? score(b.mode, guesses, helps) + (bonus === 1 ? 20 : 0) : 0;
+  const before = await env.DB.prepare("SELECT done FROM plays WHERE user_id = ?1 AND mode = ?2 AND day = ?3").bind(uid, b.mode, b.day).first();
   // Once a day's puzzle is finished it can't be changed again.
   await env.DB.prepare(
     `INSERT INTO plays (user_id, mode, day, channel_id, guild_id, guesses, done, started_at, finished_at, updated_at, points, bonus)
@@ -106,7 +108,14 @@ async function progress(req, env, ctx) {
   ).bind(uid, b.mode, b.day, channel, guild, guesses, done, started, finished, Date.now(), points, bonus).run();
   // Keep today's "is playing" card in this channel up to date.
   if (channel && ctx) ctx.waitUntil(updateCard(env, channel).catch(() => {}));
-  return json({ ok: true });
+  // Ranked: settle Elo the first time a daily puzzle is solved.
+  let elo = null;
+  if (done && !(before && before.done)) {
+    const row = await env.DB.prepare("SELECT guesses, guild_id, channel_id FROM plays WHERE user_id = ?1 AND mode = ?2 AND day = ?3").bind(uid, b.mode, b.day).first();
+    const scope = row && (row.guild_id || row.channel_id);
+    if (scope) elo = await applyElo(env, uid, scope, b.mode, b.day, row.guesses + (b.mode === "ability" ? new Set(helps).size : 0)).catch(() => null);
+  }
+  return json({ ok: true, elo });
 }
 
 // ---------- today's live list ----------
@@ -182,6 +191,52 @@ function addDays(day, n) {
   return t.toISOString().slice(0, 10);
 }
 
+// ================= Ranked (Elo vs the puzzle) =================
+// Each server has its own ladder. A puzzle's difficulty is how many guesses everyone
+// (in every server) needed for it. Beat that and you climb, need more and you drop;
+// higher-rated players are expected to beat it by more. Everyone starts at 1000 (Gold II).
+const ELO_START = 1000, PRIOR = { classic: 6, ability: 5, splash: 5, quote: 4, emoji: 4, item: 6 };
+async function applyElo(env, uid, scope, mode, day, guesses) {
+  if (await env.DB.prepare("SELECT 1 FROM elo_log WHERE user_id = ?1 AND scope_id = ?2 AND mode = ?3 AND day = ?4").bind(uid, scope, mode, day).first()) return null;
+  let perf = 0;
+  if (guesses != null) {
+    const a = await env.DB.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(guesses), 0) AS s FROM plays WHERE mode = ?1 AND day = ?2 AND done = 1 AND user_id != ?3").bind(mode, day, uid).first();
+    const avg = (PRIOR[mode] * 3 + a.s) / (3 + a.n);
+    perf = 1 / (1 + Math.pow(2, (guesses - avg) / 1.2));
+  }
+  const r = await env.DB.prepare("SELECT elo, games FROM ratings WHERE scope_id = ?1 AND user_id = ?2").bind(scope, uid).first();
+  const old = r ? r.elo : ELO_START, games = r ? r.games : 0;
+  const expect = 1 / (1 + Math.pow(10, (ELO_START - old) / 400));
+  const delta = (games < 10 ? 32 : 16) * (perf - expect), now = old + delta;
+  await env.DB.prepare("INSERT INTO ratings (scope_id, user_id, elo, games) VALUES (?1, ?2, ?3, 1) ON CONFLICT(scope_id, user_id) DO UPDATE SET elo = ?3, games = ratings.games + 1").bind(scope, uid, now).run();
+  await env.DB.prepare("INSERT INTO elo_log (user_id, scope_id, mode, day, delta, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)").bind(uid, scope, mode, day, delta, Date.now()).run();
+  return { before: old, after: now, delta };
+}
+// Puzzles started but never solved count as a loss once the day is over.
+async function settleAbandoned(env, day) {
+  const { results } = await env.DB.prepare(
+    `SELECT p.user_id, p.mode, COALESCE(p.guild_id, p.channel_id) AS scope FROM plays p
+     WHERE p.day = ?1 AND p.done = 0 AND p.guesses > 0 AND COALESCE(p.guild_id, p.channel_id) IS NOT NULL`
+  ).bind(day).all();
+  for (const p of results) await applyElo(env, p.user_id, p.scope, p.mode, day, null).catch(() => {});
+  return results.length;
+}
+async function rankBoard(url, env) {
+  const id = str(url.searchParams.get("id"));
+  if (!id) return json({ error: "bad query" }, 400);
+  const { results } = await env.DB.prepare(
+    `SELECT u.id, u.name, u.avatar, r.elo, r.games FROM ratings r JOIN users u ON u.id = r.user_id WHERE r.scope_id = ?1 ORDER BY r.elo DESC LIMIT 50`
+  ).bind(id).all();
+  return json({ rows: results });
+}
+const TIERS = ["Iron", "Bronze", "Silver", "Gold", "Platinum", "Emerald", "Diamond", "Master", "Grandmaster", "Challenger"];
+function rankName(elo) {
+  const t = Math.max(0, Math.min(9, Math.floor((elo - 650) / 100)));
+  if (t >= 7) return TIERS[t];
+  const div = Math.max(0, Math.min(3, Math.floor((elo - 650 - t * 100) / 25)));
+  return TIERS[t] + " " + ["IV", "III", "II", "I"][div];
+}
+
 // ================= Discord bot messages =================
 const API_D = "https://discord.com/api/v10";
 const GOLD = 0xC8AA6E, V2 = 1 << 15;
@@ -243,6 +298,9 @@ async function buildCard(env, channel, day, peopleIds) {
     for (const u of us) ppl[u.id] = { id: u.id, name: u.name, avatar: u.avatar, m: {}, pts: 0 };
   }
   const list = Object.values(ppl).sort((a, b) => b.pts - a.pts).slice(0, 8);
+  const g = await env.DB.prepare("SELECT guild_id FROM plays WHERE channel_id = ?1 AND guild_id IS NOT NULL LIMIT 1").bind(channel).first();
+  const scope = (g && g.guild_id) || channel;
+  for (const u of list) { const r = await env.DB.prepare("SELECT elo FROM ratings WHERE scope_id = ?1 AND user_id = ?2").bind(scope, u.id).first(); u.rank = r ? rankName(r.elo) : null; }
   const solved = Object.values(ppl).filter(u => Object.values(u.m).some(x => x.done)).length;
   const names = list.map(u => `**${u.name}**`);
   const head = names.length <= 1 ? `${names[0] || "Someone"} is playing!` : `${names.slice(0, -1).join(", ")} and ${names.at(-1)} are playing!`;
@@ -252,7 +310,7 @@ async function buildCard(env, channel, day, peopleIds) {
     { type: 17, accent_color: GOLD, components: [
       { type: 10, content: `## Leagledle\n${date}  ·  **${Object.keys(ppl).length}** playing  ·  **${solved}** solved` },
       { type: 14, divider: true, spacing: 1 },
-      ...list.map(u => ({ type: 9, components: [{ type: 10, content: `**${u.name}**  ·  ${u.pts} pts\n${Object.keys(MODE_ICON).map(k => { const x = u.m[k]; return x ? `${MODE_ICON[k]} ${x.done ? "✓" + x.guesses : "…" + x.guesses}${k === "ability" && x.bonus === 1 ? "★" : ""}` : null; }).filter(Boolean).join("   ") || "Just started"}` }], accessory: { type: 11, media: { url: avatarUrl(u) } } })),
+      ...list.map(u => ({ type: 9, components: [{ type: 10, content: `**${u.name}**${u.rank ? `  ·  ${u.rank}` : ""}  ·  ${u.pts} pts\n${Object.keys(MODE_ICON).map(k => { const x = u.m[k]; return x ? `${MODE_ICON[k]} ${x.done ? "✓" + x.guesses : "…" + x.guesses}${k === "ability" && x.bonus === 1 ? "★" : ""}` : null; }).filter(Boolean).join("   ") || "Just started"}` }], accessory: { type: 11, media: { url: avatarUrl(u) } } })),
     ] },
     playBtn(),
   ];
@@ -288,8 +346,9 @@ async function updateCard(env, channel) {
 
 // Every night: yesterday's results and the group's streak, in each channel that plays.
 async function dailyRecaps(env, force) {
-  if (!botAuth(env)) return { error: "no bot token" };
   const today = berlinDay(), y = addDays(today, -1), y2 = addDays(today, -2);
+  await settleAbandoned(env, y).catch(() => {});
+  if (!botAuth(env)) return { error: "no bot token" };
   const { results: chans } = await env.DB.prepare("SELECT DISTINCT channel_id FROM plays WHERE channel_id IS NOT NULL AND day >= ?1 AND day <= ?2").bind(y2, y).all();
   const out = [];
   for (const { channel_id: ch } of chans) {
