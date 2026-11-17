@@ -377,14 +377,21 @@ async function loadItems(){
   for(const [id,it] of Object.entries(d)){
     const tg=it.tags||[];
     if(!it.maps||!it.maps["11"]||!it.gold||!it.gold.purchasable||!(it.gold.total>0)||it.inStore===false||it.requiredChampion||it.requiredAlly||it.hideFromAll||tg.includes("Consumable")||tg.includes("Trinket")||/</.test(it.name)||seen.has(it.name))continue;
-    seen.add(it.name);L.push({id,name:it.name,item:true,cost:it.gold.total,tags:tg,from:(it.from||[]).map(f=>d[f]&&d[f].name).filter(Boolean),depth:it.depth||1});
+    seen.add(it.name);L.push({id,name:it.name,item:true,cost:it.gold.total,tags:tg,st:statLines(it.description),from:(it.from||[]).map(f=>d[f]&&d[f].name).filter(Boolean),depth:it.depth||1});
   }
   ITEMS=L.sort((a,b)=>a.name.localeCompare(b.name));for(const i of ITEMS)IBY[i.name]=i;
 }
 const T=n=>mode==="item"?IBY[n]:BY[n];
 const TAGN={Damage:"Attack Damage",CriticalStrike:"Crit",AttackSpeed:"Attack Speed",SpellDamage:"Ability Power",Health:"Health",Armor:"Armor",SpellBlock:"Magic Resist",Mana:"Mana",ManaRegen:"Mana Regen",HealthRegen:"Health Regen",LifeSteal:"Life Steal",SpellVamp:"Omnivamp",CooldownReduction:"Ability Haste",AbilityHaste:"Ability Haste",Boots:"Boots",NonbootsMovement:"Move Speed",ArmorPenetration:"Armor Pen",MagicPenetration:"Magic Pen",OnHit:"On-hit",Active:"Active",Slow:"Slow",Tenacity:"Tenacity",Aura:"Aura",GoldPer:"Gold income",Vision:"Vision",Stealth:"Stealth"};
 const gold=n=>Number(n).toLocaleString("en-US");
-const stats=it=>[...new Set(it.tags.map(x=>TAGN[x]||x))];
+// The real stats from the item's tooltip, e.g. "40 Attack Damage" (Riot's tags are often incomplete).
+function statLines(desc){
+  const m=/<stats>([\s\S]*?)<\/stats>/i.exec(desc||"");if(!m)return null;
+  const out=m[1].split(/<br\s*\/?>/i).map(l=>l.replace(/<[^>]+>/g," ").replace(/[\d.,%+]+/g," ").replace(/\s+/g," ").trim()).filter(Boolean)
+    .map(n=>({"Critical Strike Chance":"Crit","Base Mana Regen":"Mana Regen","Base Health Regen":"Health Regen","Heal and Shield Power":"Heal & Shield Power"})[n]||n);
+  return out.length?[...new Set(out)]:null;
+}
+const stats=it=>it.st||[...new Set(it.tags.map(x=>TAGN[x]||x))];
 
 async function init(){
   try{
@@ -462,7 +469,7 @@ function clueHtml(t,wrong){
   if(mode==="item"){let h=`<h2>Which item costs this much?</h2><div class="cost">${emo("🪙")} <b>${gold(t.cost)}</b> gold</div>`;
     if(!S.done&&wrong){const ts=new Set(stats(t)),yes=new Set(),no=new Set();for(const n of S.guesses){if(n===S.target)continue;for(const x of stats(IBY[n]))(ts.has(x)?yes:no).add(x);}
       if(yes.size||no.size)h+=`<p class="known">${[...yes].map(x=>`<span class="chip y">✓ ${esc(x)}</span>`).join("")}${[...no].map(x=>`<span class="chip n">✗ ${esc(x)}</span>`).join("")}</p>`;}
-    if(!S.done&&wrong>=3&&t.tags.length)h+=`<p class="hint" style="margin-top:8px">Hint: gives ${esc(t.tags.map(x=>TAGN[x]||x).filter((v,i,a)=>a.indexOf(v)===i).join(", "))}</p>`;
+    if(!S.done&&wrong>=3&&stats(t).length)h+=`<p class="hint" style="margin-top:8px">Hint: gives ${esc(stats(t).join(", "))}</p>`;
     if(!S.done&&wrong>=6&&t.from.length)h+=`<p class="hint">Builds from: ${esc(t.from.join(", "))}</p>`;
     return h+(S.done?"":`<p class="hint" style="margin-top:8px">Each guess shows if today's item costs more or less, and which of its stats today's item also has (✓) or doesn't (✗). Full stat list after 3 misses, recipe after 6.</p>`)+worthHtml(wrong);}
   if(mode==="classic")return `<h2>Guess today's champion</h2><p class="hint">Type any champion to begin. Each guess shows how close it is.</p>${worthHtml(wrong)}`;
