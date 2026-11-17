@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Champ Guess</title>
+<title>Leagledle</title>
+<link rel="icon" type="image/png" href="icon-192.png">
 <style>
 :root{
   --bg:#0a1018;--panel:#111a26;--panel2:#16212f;--line:#24324a;--ink:#eef2f7;--muted:#93a1b5;
@@ -14,6 +15,14 @@
 html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 body{min-height:100vh;background:radial-gradient(1200px 500px at 50% -200px,#1b2a40 0%,var(--bg) 70%) fixed}
 .wrap{max-width:860px;margin:0 auto;padding:16px 16px 40px}
+.logo{display:flex;justify-content:center;gap:clamp(3px,1vw,6px);margin:6px 0 6px;font-size:inherit;letter-spacing:0}
+.lt{--s:clamp(30px,9vw,46px);width:var(--s);height:var(--s);display:grid;place-items:center;font-weight:900;font-size:calc(var(--s)*.58);line-height:1;color:#f0e6d2;
+  clip-path:polygon(18% 0,82% 0,100% 18%,100% 82%,82% 100%,18% 100%,0 82%,0 18%);position:relative;animation:lpop .5s both;text-shadow:0 1px 0 rgba(0,0,0,.35)}
+.lt.g{background:linear-gradient(160deg,#f0d897 0%,#c8aa6e 45%,#785a28 100%);color:#1a1408;text-shadow:0 1px 0 rgba(255,255,255,.35)}
+.lt.t{background:linear-gradient(160deg,#5ef0e2 0%,#0ac8b9 45%,#005a82 100%);color:#04151c;text-shadow:0 1px 0 rgba(255,255,255,.3)}
+.lt.d{background:linear-gradient(160deg,#f0d897,#785a28);isolation:isolate}
+.lt.d::before{content:"";position:absolute;inset:2.5px;z-index:-1;background:linear-gradient(160deg,#2a3b55 0%,#1e2a3c 50%,#0f1722 100%);clip-path:polygon(18% 0,82% 0,100% 18%,100% 82%,82% 100%,18% 100%,0 82%,0 18%)}
+@keyframes lpop{0%{transform:rotateX(90deg);opacity:0}100%{transform:none;opacity:1}}
 h1{margin:4px 0 2px;text-align:center;font-size:30px;letter-spacing:.08em;color:var(--gold2);text-transform:uppercase;font-weight:800}
 h1 span{color:var(--gold)}
 .sub{text-align:center;color:var(--muted);margin:0 0 14px;font-size:13px}
@@ -79,11 +88,11 @@ footer{color:#5d6b80;font-size:11px;text-align:center;margin-top:24px;line-heigh
 </head>
 <body>
 <div class="wrap">
-  <h1>Champ <span>Guess</span></h1>
+  <h1 class="logo" aria-label="Leagledle"><span class="lt g" style="animation-delay:0.00s">L</span><span class="lt d" style="animation-delay:0.07s">E</span><span class="lt t" style="animation-delay:0.14s">A</span><span class="lt g" style="animation-delay:0.21s">G</span><span class="lt d" style="animation-delay:0.28s">L</span><span class="lt t" style="animation-delay:0.35s">E</span><span class="lt g" style="animation-delay:0.42s">D</span><span class="lt g" style="animation-delay:0.49s">L</span><span class="lt g" style="animation-delay:0.56s">E</span></h1>
   <p class="sub" id="sub">Guess today's League of Legends champion</p>
   <nav id="modes"></nav>
   <div id="game"><p class="msg">Loading champions…</p></div>
-  <footer>Champ Guess isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties. Riot Games and all associated properties are trademarks or registered trademarks of Riot Games, Inc.</footer>
+  <footer>Leagledle isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties. Riot Games and all associated properties are trademarks or registered trademarks of Riot Games, Inc.</footer>
 </div>
 <script type="module">
 // Inside a Discord Activity everything must go through Discord's proxy (URL mappings set in the Developer Portal):
@@ -378,7 +387,7 @@ function shareText(){
   let rows;
   if(mode==="classic")rows=S.guesses.map(n=>classicCells(BY[n],t).map(c=>({g:"🟩",o:"🟨",x:"🟥"})[c[2]]).join("")).join("\n");
   else rows=S.guesses.map(n=>n===S.target?"🟩":"🟥").join("");
-  return `Champ Guess · ${lbl}${S.random?" (random)":" · "+S.day}\nFound in ${S.guesses.length} 🎯\n${rows}`;
+  return `Leagledle · ${lbl}${S.random?" (random)":" · "+S.day}\nFound in ${S.guesses.length} 🎯\n${rows}`;
 }
 async function share(){
   const txt=shareText(),ta=$("shareT");
