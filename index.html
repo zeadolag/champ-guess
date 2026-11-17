@@ -48,6 +48,18 @@ nav button .ok{color:var(--green);font-size:13px}
 .srow .tm{font-variant-numeric:tabular-nums;color:var(--muted);font-size:13px}
 .srow .ok{color:var(--green);font-weight:800}
 .sempty{color:var(--muted);font-size:13px;text-align:center;padding:14px 4px}
+.worth{text-align:center;color:var(--muted);font-size:13px;margin:10px 0 0}.worth b{color:var(--gold2)}
+.win p.pts{color:var(--gold2);font-weight:800;font-size:16px;margin-top:6px}
+.tm b{color:var(--ink)}
+.h3r{display:flex;align-items:center;gap:8px}
+.streak{font-size:12px;font-weight:800;color:var(--muted);background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:4px 8px;white-space:nowrap}
+.streak.on{color:#ffb547;border-color:#7a5418}
+.stabs{flex-wrap:wrap;row-gap:0}
+.rcsum{margin:4px 2px 8px;font-size:13px;color:var(--muted)}.rcsum b{color:var(--ink)}
+.rcday{font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--gold);margin:10px 2px 2px}
+.srow.rc{padding:6px 8px}
+.rcm{display:flex!important;flex-wrap:wrap;gap:6px;margin-top:2px}
+.rcm span{font-variant-numeric:tabular-nums}.rcm span.p{opacity:.6}
 .invb{background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:999px;padding:5px 10px;font:inherit;font-size:12px;font-weight:700;cursor:pointer}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:16px;margin-bottom:14px}
 .card h2{margin:0 0 4px;font-size:18px;text-align:center}
@@ -381,12 +393,16 @@ function render(){
   if(!S.done)bindInput();
   afterRender(t,wrong);
 }
+// Scoring (same rules as the server): 100 for finishing, minus 10 per wrong guess (never below 10);
+// in Ability mode each help you turn on (colour, upright) takes off 20%.
+function score(m,guesses,helps){let p=Math.max(10,100-10*(Math.max(1,guesses)-1));if(m==="ability")for(const h of new Set(helps||[]))p*=.8;return Math.round(p);}
+const worthHtml=wrong=>S.done?"":`<p class="worth">Worth <b>${score(mode,wrong+1,S.helps)}</b> points now · −10 per wrong guess</p>`;
 function clueHtml(t,wrong){
-  if(mode==="classic")return `<h2>Guess today's champion</h2><p class="hint">Type any champion to begin. Each guess shows how close it is.</p>`;
-  if(mode==="ability")return `<h2>Which champion has this ability?</h2><div class="clue"><img class="abil${!S.done&&S.gray!==false?" gray":""}" id="abImg" alt="Ability icon" src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=="></div><div class="tgl"><label><input type="checkbox" id="grayT" ${S.gray!==false?"checked":""}> Grayscale (harder)</label></div>`;
-  if(mode==="splash")return `<h2>Which champion is in this splash art?</h2><div class="clue"><div class="splash"><img id="spImg" alt="Part of a splash art"></div></div><p class="hint" style="margin-top:8px">It zooms out a bit with every wrong guess.</p>`;
-  if(mode==="quote"){const i=t.info;return `<h2>Which champion says this?</h2><p class="quote">“${esc(i.quote)}”</p>${!S.done&&wrong>=4?`<p class="hint" style="margin-top:10px">Hint: from ${esc(i.regions.join(" / "))}</p>`:""}`;}
-  if(mode==="emoji"){const E=t.info.emojis,show=S.done?E.length:Math.min(E.length,1+wrong);return `<h2>Which champion do these emojis describe?</h2><div class="emojis">${E.map((e,i)=>i<show?`<span>${e}</span>`:`<span class="hid">?</span>`).join("")}</div><p class="hint" style="margin-top:8px">A new emoji appears after each wrong guess.</p>`;}
+  if(mode==="classic")return `<h2>Guess today's champion</h2><p class="hint">Type any champion to begin. Each guess shows how close it is.</p>${worthHtml(wrong)}`;
+  if(mode==="ability")return `<h2>Which champion has this ability?</h2><div class="clue"><img class="abil${!S.done&&S.gray!==false?" gray":""}" id="abImg" alt="Ability icon" src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=="></div><div class="tgl"><label><input type="checkbox" id="grayT" ${S.gray!==false?"checked":""}${S.done?" disabled":""}> Grayscale</label><label><input type="checkbox" id="rotT" ${S.rot!==false?"checked":""}${S.done?" disabled":""}> Rotated</label></div><p class="hint" style="margin-top:6px">Turning either off costs 20% of your points${(S.helps||[]).length?` · used: ${(S.helps||[]).map(h=>h==="color"?"colour":"upright").join(", ")}`:""}</p>${worthHtml(wrong)}`;
+  if(mode==="splash")return `<h2>Which champion is in this splash art?</h2><div class="clue"><div class="splash"><img id="spImg" alt="Part of a splash art"></div></div><p class="hint" style="margin-top:8px">It zooms out a bit with every wrong guess.</p>${worthHtml(wrong)}`;
+  if(mode==="quote"){const i=t.info;return `<h2>Which champion says this?</h2><p class="quote">“${esc(i.quote)}”</p>${!S.done&&wrong>=4?`<p class="hint" style="margin-top:10px">Hint: from ${esc(i.regions.join(" / "))}</p>`:""}${worthHtml(wrong)}`;}
+  if(mode==="emoji"){const E=t.info.emojis,show=S.done?E.length:Math.min(E.length,1+wrong);return `<h2>Which champion do these emojis describe?</h2><div class="emojis">${E.map((e,i)=>i<show?`<span>${e}</span>`:`<span class="hid">?</span>`).join("")}</div><p class="hint" style="margin-top:8px">A new emoji appears after each wrong guess.</p>${worthHtml(wrong)}`;}
   return "";
 }
 function guessesHtml(t){
@@ -399,24 +415,26 @@ function guessesHtml(t){
 }
 function winHtml(t){
   const n=S.guesses.length;
-  return `<div class="card win"><img class="big" src="${icon(t)}" alt=""><h2>${esc(t.name)}</h2><p>${S.extra?esc(S.extra)+" · ":""}Found in ${n} guess${n===1?"":"es"}</p>
+  return `<div class="card win"><img class="big" src="${icon(t)}" alt=""><h2>${esc(t.name)}</h2><p>${S.extra?esc(S.extra)+" · ":""}Found in ${n} guess${n===1?"":"es"}</p><p class="pts">+${score(mode,n,S.helps)} points${S.random?" (random rounds don't count)":""}</p>
   <div class="btns"><button class="btn pri" id="shareB" type="button">Copy result</button><button class="btn" id="randB" type="button">Play a random one</button>${nextMode()?`<button class="btn" id="nextB" type="button">Next: ${nextMode()[1]}</button>`:""}</div><textarea class="share" id="shareT" rows="5" readonly aria-label="Result to share"></textarea></div>`;
 }
 const nextMode=()=>MODES.find(m=>m[0]!==mode&&!dailyDone(m[0]));
 async function afterRender(t,wrong){
   if(mode==="ability"){
+    const useHelp=h=>{S.helps=S.helps||[];if(!S.helps.includes(h))S.helps.push(h);};
+    const gt=$("grayT");if(gt)gt.onchange=()=>{S.gray=gt.checked;if(!gt.checked)useHelp("color");save(skey(),S);render();};
+    const rt=$("rotT");if(rt)rt.onchange=()=>{S.rot=rt.checked;if(!rt.checked)useHelp("upright");save(skey(),S);render();};
     const d=await detail(t).catch(()=>null);if(!d||mode!=="ability")return;
     const all=[{k:"Passive",n:d.passive.name,src:`${DD}/cdn/${V}/img/passive/${d.passive.image.full}`},...d.spells.map((s,i)=>({k:"QWER"[i],n:s.name,src:`${DD}/cdn/${V}/img/spell/${s.image.full}`}))];
-    const a=all[Math.floor(S.r[0]*all.length)];const im=$("abImg");if(im){im.src=a.src;im.style.transform=S.done?"none":`rotate(${[0,90,180,270][Math.floor(S.r[1]*4)]}deg)`;}
-    S.extra=`${a.k}: ${a.n}`;if(S.done){const p=document.querySelector(".win p");if(p)p.textContent=`${a.k}: ${a.n} · Found in ${S.guesses.length} guess${S.guesses.length===1?"":"es"}`;}
-    const gt=$("grayT");if(gt)gt.onchange=()=>{S.gray=gt.checked;save(skey(),S);if(im)im.classList.toggle("gray",gt.checked&&!S.done);};
+    const a=all[Math.floor(S.r[0]*all.length)];const im=$("abImg");if(im){im.src=a.src;im.style.transform=S.done||S.rot===false?"none":`rotate(${[90,180,270][Math.floor(S.r[1]*3)]}deg)${S.r[2]<.5?" scaleX(-1)":""}`;}
+    S.extra=`${a.k}: ${a.n}`;if(S.done){const p=document.querySelector(".win p:not(.pts)");if(p&&!p.classList.contains("pts"))p.textContent=`${a.k}: ${a.n} · Found in ${S.guesses.length} guess${S.guesses.length===1?"":"es"}`;}
   }
   if(mode==="splash"){
     const d=await detail(t).catch(()=>null);if(!d||mode!=="splash")return;
     const sk=d.skins[Math.floor(S.r[0]*d.skins.length)],im=$("spImg");if(!im)return;
     im.src=`${DD}/cdn/img/champion/splash/${t.id}_${sk.num}.jpg`;
-    const z=S.done?1:Math.max(1.4,6-wrong*0.75);im.style.transformOrigin=`${15+S.r[1]*70}% ${15+S.r[2]*70}%`;im.style.transform=`scale(${z})`;
-    S.extra=sk.num===0?"Default skin":sk.name;if(S.done){const p=document.querySelector(".win p");if(p)p.textContent=`${S.extra} · Found in ${S.guesses.length} guess${S.guesses.length===1?"":"es"}`;}
+    const z=S.done?1:Math.max(1.6,8.5-wrong*1);im.style.transformOrigin=`${15+S.r[1]*70}% ${15+S.r[2]*70}%`;im.style.transform=`scale(${z})`;
+    S.extra=sk.num===0?"Default skin":sk.name;if(S.done){const p=document.querySelector(".win p:not(.pts)");if(p)p.textContent=`${S.extra} · Found in ${S.guesses.length} guess${S.guesses.length===1?"":"es"}`;}
   }
   if(S.done){
     $("shareB").onclick=share;$("randB").onclick=randomRound;const nb=$("nextB");if(nb)nb.onclick=()=>{mode=nextMode()[0];start();};
@@ -427,7 +445,7 @@ function shareText(){
   let rows;
   if(mode==="classic")rows=S.guesses.map(n=>classicCells(BY[n],t).map(c=>({g:"🟩",o:"🟨",x:"🟥"})[c[2]]).join("")).join("\n");
   else rows=S.guesses.map(n=>n===S.target?"🟩":"🟥").join("");
-  return `Leagledle · ${lbl}${S.random?" (random)":" · "+S.day}\nFound in ${S.guesses.length} 🎯\n${rows}`;
+  return `Leagledle · ${lbl}${S.random?" (random)":" · "+S.day}\nFound in ${S.guesses.length} 🎯 · ${score(mode,S.guesses.length,S.helps)} pts\n${rows}`;
 }
 async function share(){
   const txt=shareText(),ta=$("shareT");
@@ -466,7 +484,7 @@ function guess(name){
 }
 // ---------- social panel ----------
 async function api(path,opts={}){const r=await fetch(API+path,{...opts,headers:{"Content-Type":"application/json",...(SESSION?{Authorization:"Bearer "+SESSION}:{}),...(opts.headers||{})}});return r.json();}
-function pushProgress(){if(!API||!SESSION||!S||S.random)return;api("/progress",{method:"POST",body:JSON.stringify({mode,day:S.day,guesses:S.guesses.length,done:S.done,started:S.started,finished:S.finished||null,channel:CTX.channel,guild:CTX.guild})}).catch(()=>{});}
+function pushProgress(){if(!API||!SESSION||!S||S.random)return;api("/progress",{method:"POST",body:JSON.stringify({mode,day:S.day,guesses:S.guesses.length,done:S.done,started:S.started,finished:S.finished||null,helps:S.helps||[],channel:CTX.channel,guild:CTX.guild})}).catch(()=>{});}
 const scopeId=()=>SOC.scope==="server"?CTX.guild:CTX.channel;
 async function refreshSocial(){
   if(!IN_DISCORD)return;
@@ -474,8 +492,9 @@ async function refreshSocial(){
   if(SESSION&&scopeId()){
     try{
       const q=`mode=${mode}&scope=${SOC.scope}&id=${scopeId()}`;
-      const r=SOC.tab==="live"?await api(`/live?${q}&day=${today()}`):await api(`/board?${q}&period=${SOC.tab==="all"?"all":"season"}`);
-      SOC.rows=r.rows||[];SOC.now=r.now||Date.now();SOC.at=Date.now();
+      const [r,rc]=await Promise.all([SOC.tab==="recap"?null:SOC.tab==="live"?api(`/live?${q}&day=${today()}`):api(`/board?${q}&period=${SOC.tab==="all"?"all":"season"}`),api(`/recap?scope=${SOC.scope}&id=${scopeId()}&day=${today()}`).catch(()=>null)]);
+      if(r){SOC.rows=r.rows||[];SOC.now=r.now||Date.now();SOC.at=Date.now();}
+      if(rc&&!rc.error)SOC.recap=rc;
     }catch(_){}
   }
   renderSocial();
@@ -483,17 +502,31 @@ async function refreshSocial(){
 }
 const avatar=u=>u.avatar?`/discordcdn/avatars/${u.id}/${u.avatar}.png?size=64`:`/discordcdn/embed/avatars/${Number((BigInt(u.id)>>22n)%6n)}.png`;
 const dur=ms=>{const t=Math.max(0,Math.round(ms/1000)),h=Math.floor(t/3600),m=Math.floor(t%3600/60),x=t%60;return (h?h+":"+String(m).padStart(2,"0"):m)+":"+String(x).padStart(2,"0");};
+function dayLabel(d){const t=today();if(d===t)return "Today";const y=new Date(t+"T12:00:00");y.setDate(y.getDate()-1);if(d===y.toISOString().slice(0,10))return "Yesterday";return new Date(d+"T12:00:00").toLocaleDateString(undefined,{weekday:"short",day:"numeric",month:"short"});}
+function recapHtml(rc){
+  if(!rc)return `<p class="sempty">Loading…</p>`;
+  if(!rc.rows.length)return `<p class="sempty">Nobody here has played in the last 7 days.</p>`;
+  const byDay={};for(const r of rc.rows){const d=byDay[r.day]=byDay[r.day]||{};const u=d[r.id]=d[r.id]||{id:r.id,name:r.name,avatar:r.avatar,m:{}};u.m[r.mode]=r;}
+  let h=`<p class="rcsum">${rc.streak?`🔥 <b>${rc.streak}-day streak</b>${rc.today?"":" · finish one today to keep it"}`:"No streak yet. Finish a puzzle today to start one!"}${rc.best>rc.streak?` · best ${rc.best}`:""}</p>`;
+  for(const day of Object.keys(byDay).sort().reverse()){
+    h+=`<div class="rcday">${dayLabel(day)}</div>`;
+    h+=Object.values(byDay[day]).map(u=>`<div class="srow rc${ME&&u.id===ME.id?" me":""}"><img src="${avatar(u)}" alt=""><span class="nm">${esc(u.name)}<small class="rcm">${MODES.map(([k,,e])=>{const x=u.m[k];return x?`<span class="${x.done?"d":"p"}" title="${k}">${e}${x.done?x.guesses:"…"}</span>`:"";}).join("")}</small></span><span class="tm">${Object.values(u.m).reduce((a,x)=>a+(x.points||0),0)} pts</span></div>`).join("");
+  }
+  return h;
+}
 function renderSocial(){
   const el=$("social");if(!IN_DISCORD){el.hidden=true;return;}
   el.hidden=false;el.parentElement.classList.add("has");
   const lbl=MODES.find(m=>m[0]===mode)[1];
-  let h=`<h3><span>${lbl} · ${SOC.tab==="live"?"today":SOC.tab==="season"?"this month":"all time"}</span>${SDK?`<button type="button" class="invb" id="invB">+ Invite</button>`:""}</h3>
-  <div class="stabs"><div>${[["live","Live"],["season","Season"],["all","All-time"]].map(([k,l])=>`<button type="button" data-stab="${k}" aria-pressed="${SOC.tab===k}">${l}</button>`).join("")}</div><div>${[["channel","Channel"],["server","Server"]].map(([k,l])=>`<button type="button" data-sscope="${k}" aria-pressed="${SOC.scope===k}"${k==="server"&&!CTX.guild?" disabled":""}>${l}</button>`).join("")}</div></div>`;
+  const rc=SOC.recap,stk=rc?`<span class="streak${rc.today?" on":""}" title="Days in a row someone here finished a puzzle${rc.best?` (best: ${rc.best})`:""}">🔥 ${rc.streak} day${rc.streak===1?"":"s"}</span>`:"";
+  let h=`<h3><span>${SOC.tab==="recap"?"Last 7 days":`${lbl} · ${SOC.tab==="live"?"today":SOC.tab==="season"?"this month":"all time"}`}</span><span class="h3r">${stk}${SDK?`<button type="button" class="invb" id="invB">+ Invite</button>`:""}</span></h3>
+  <div class="stabs"><div>${[["live","Live"],["season","Season"],["all","All-time"],["recap","Recap"]].map(([k,l])=>`<button type="button" data-stab="${k}" aria-pressed="${SOC.tab===k}">${l}</button>`).join("")}</div><div>${[["channel","Channel"],["server","Server"]].map(([k,l])=>`<button type="button" data-sscope="${k}" aria-pressed="${SOC.scope===k}"${k==="server"&&!CTX.guild?" disabled":""}>${l}</button>`).join("")}</div></div>`;
   if(SOC.msg)h+=`<p class="sempty">${esc(SOC.msg)}</p>`;
+  else if(SOC.tab==="recap")h+=recapHtml(rc);
   else if(!SOC.rows.length)h+=`<p class="sempty">${SOC.tab==="live"?"Nobody has played today's "+lbl+" here yet. Be the first!":"No wins here yet."}</p>`;
   else h+=SOC.rows.map((u,i)=>{const me=ME&&u.id===ME.id;let right,sub;
-    if(SOC.tab==="live"){const t=u.done?u.finished_at-u.started_at:(SOC.now||Date.now())-u.started_at+(Date.now()-(SOC.at||Date.now()));right=`<span class="tm">${dur(t)}</span>`;sub=u.done?`<span class="ok">✓</span> ${u.guesses} guess${u.guesses==1?"":"es"}`:`Playing · ${u.guesses} guess${u.guesses==1?"":"es"}`;}
-    else{right=`<span class="tm">${u.wins} win${u.wins==1?"":"s"}</span>`;sub=`avg ${u.avg_guesses} · best ${u.best}`;}
+    if(SOC.tab==="live"){const t=u.done?u.finished_at-u.started_at:(SOC.now||Date.now())-u.started_at+(Date.now()-(SOC.at||Date.now()));right=`<span class="tm">${dur(t)}</span>`;sub=u.done?`<span class="ok">✓</span> ${u.guesses} guess${u.guesses==1?"":"es"} · ${u.points} pts`:`Playing · ${u.guesses} guess${u.guesses==1?"":"es"}`;}
+    else{right=`<span class="tm"><b>${u.points}</b> pts</span>`;sub=`${u.wins} win${u.wins==1?"":"s"} · avg ${u.avg_guesses} guesses`;}
     return `<div class="srow${me?" me":""}"><span class="rk">${i+1}</span><img src="${avatar(u)}" alt=""><span class="nm">${esc(u.name)}<small>${sub}</small></span>${right}</div>`;}).join("");
   el.innerHTML=h;
   const ib=$("invB");if(ib)ib.onclick=()=>SDK.commands.openInviteDialog().catch(()=>{});

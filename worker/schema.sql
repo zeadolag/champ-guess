@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS plays (
   started_at INTEGER NOT NULL,
   finished_at INTEGER,
   updated_at INTEGER NOT NULL,
+  points INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (user_id, mode, day)
 );
 CREATE INDEX IF NOT EXISTS plays_channel ON plays (channel_id, mode, day);

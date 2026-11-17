@@ -7,6 +7,14 @@
 
 const MODES = new Set(["classic", "ability", "splash", "quote", "emoji"]);
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+// Scoring: 100 for finishing, minus 10 per wrong guess (never below 10).
+// In Ability mode, turning off grayscale or rotation each costs 20% of that.
+const HELPS = new Set(["color", "upright"]);
+function score(mode, guesses, helps) {
+  let p = Math.max(10, 100 - 10 * (Math.max(1, guesses) - 1));
+  if (mode === "ability") for (const h of new Set(helps)) if (HELPS.has(h)) p *= 0.8;
+  return Math.round(p);
+}
 
 export default {
   async fetch(req, env) {
@@ -19,6 +27,7 @@ export default {
       if (path === "/progress" && req.method === "POST") return await progress(req, env);
       if (path === "/live" && req.method === "GET") return await live(url, env);
       if (path === "/board" && req.method === "GET") return await board(url, env);
+      if (path === "/recap" && req.method === "GET") return await recap(url, env);
       if (path === "/" ) return json({ ok: true, name: "Leagledle API" });
       return json({ error: "not found" }, 404);
     } catch (e) {
@@ -63,18 +72,21 @@ async function progress(req, env) {
   const started = clampInt(b.started, 0, 9e15) || Date.now();
   const finished = done ? (clampInt(b.finished, 0, 9e15) || Date.now()) : null;
   const channel = str(b.channel), guild = str(b.guild);
+  const helps = Array.isArray(b.helps) ? b.helps.filter(h => HELPS.has(h)) : [];
+  const points = done ? score(b.mode, guesses, helps) : 0;
   // Once a day's puzzle is finished it can't be changed again.
   await env.DB.prepare(
-    `INSERT INTO plays (user_id, mode, day, channel_id, guild_id, guesses, done, started_at, finished_at, updated_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+    `INSERT INTO plays (user_id, mode, day, channel_id, guild_id, guesses, done, started_at, finished_at, updated_at, points)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
      ON CONFLICT(user_id, mode, day) DO UPDATE SET
        guesses = CASE WHEN plays.done = 1 THEN plays.guesses ELSE ?6 END,
+       points = CASE WHEN plays.done = 1 THEN plays.points ELSE ?11 END,
        finished_at = CASE WHEN plays.done = 1 THEN plays.finished_at ELSE ?9 END,
        done = MAX(plays.done, ?7),
        channel_id = COALESCE(plays.channel_id, ?4),
        guild_id = COALESCE(plays.guild_id, ?5),
        updated_at = ?10`
-  ).bind(uid, b.mode, b.day, channel, guild, guesses, done, started, finished, Date.now()).run();
+  ).bind(uid, b.mode, b.day, channel, guild, guesses, done, started, finished, Date.now(), points).run();
   return json({ ok: true });
 }
 
@@ -85,10 +97,10 @@ async function live(url, env) {
   const id = str(url.searchParams.get("id"));
   if (!MODES.has(mode) || !DAY_RE.test(day || "") || !id) return json({ error: "bad query" }, 400);
   const { results } = await env.DB.prepare(
-    `SELECT u.id, u.name, u.avatar, p.guesses, p.done, p.started_at, p.finished_at
+    `SELECT u.id, u.name, u.avatar, p.guesses, p.done, p.points, p.started_at, p.finished_at
      FROM plays p JOIN users u ON u.id = p.user_id
      WHERE p.mode = ?1 AND p.day = ?2 AND p.${scope} = ?3
-     ORDER BY p.done DESC, p.guesses ASC, (COALESCE(p.finished_at, 0) - p.started_at) ASC
+     ORDER BY p.done DESC, p.points DESC, p.guesses ASC, (COALESCE(p.finished_at, 0) - p.started_at) ASC
      LIMIT 50`
   ).bind(mode, day, id).all();
   return json({ rows: results, now: Date.now() });
@@ -106,6 +118,7 @@ async function board(url, env) {
   const where = period === "season" ? "AND substr(p.day, 1, 7) = ?3" : "";
   const stmt = env.DB.prepare(
     `SELECT u.id, u.name, u.avatar,
+            SUM(p.points) AS points,
             SUM(p.done) AS wins,
             ROUND(AVG(CASE WHEN p.done = 1 THEN p.guesses END), 2) AS avg_guesses,
             MIN(CASE WHEN p.done = 1 THEN p.guesses END) AS best
@@ -113,11 +126,41 @@ async function board(url, env) {
      WHERE p.mode = ?1 AND p.${scope} = ?2 ${where}
      GROUP BY u.id
      HAVING wins > 0
-     ORDER BY wins DESC, avg_guesses ASC
+     ORDER BY points DESC, wins DESC, avg_guesses ASC
      LIMIT 50`
   );
   const { results } = await (period === "season" ? stmt.bind(mode, id, season) : stmt.bind(mode, id)).all();
   return json({ rows: results, season });
+}
+
+// ---------- daily recap and streak ----------
+// Who played each of the last 7 days and what they got, plus how many days in a row
+// someone in this channel/server finished at least one puzzle.
+async function recap(url, env) {
+  const scope = url.searchParams.get("scope") === "server" ? "guild_id" : "channel_id";
+  const id = str(url.searchParams.get("id")), today = url.searchParams.get("day");
+  if (!id || !DAY_RE.test(today || "")) return json({ error: "bad query" }, 400);
+  const since = addDays(today, -6);
+  const { results } = await env.DB.prepare(
+    `SELECT p.day, p.mode, p.guesses, p.done, p.points, u.id, u.name, u.avatar
+     FROM plays p JOIN users u ON u.id = p.user_id
+     WHERE p.${scope} = ?1 AND p.day >= ?2 AND p.day <= ?3
+     ORDER BY p.day DESC, u.name`
+  ).bind(id, since, today).all();
+  const { results: dayRows } = await env.DB.prepare(
+    `SELECT DISTINCT day FROM plays WHERE ${scope} = ?1 AND done = 1 AND day <= ?2 ORDER BY day DESC LIMIT 400`
+  ).bind(id, today).all();
+  // The streak counts back from today, or from yesterday if nobody has finished today yet.
+  const days = new Set(dayRows.map(r => r.day));
+  let d = days.has(today) ? today : addDays(today, -1), streak = 0;
+  while (days.has(d)) { streak++; d = addDays(d, -1); }
+  let best = 0, run = 0, prev = null;
+  for (const day of [...days].sort()) { run = prev && addDays(prev, 1) === day ? run + 1 : 1; best = Math.max(best, run); prev = day; }
+  return json({ rows: results, streak, best, today: days.has(today) });
+}
+function addDays(day, n) {
+  const t = new Date(day + "T12:00:00Z"); t.setUTCDate(t.getUTCDate() + n);
+  return t.toISOString().slice(0, 10);
 }
 
 // ---------- helpers ----------
