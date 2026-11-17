@@ -51,6 +51,9 @@ nav button .ok{color:var(--green);font-size:13px}
 .worth{text-align:center;color:var(--muted);font-size:13px;margin:10px 0 0}.worth b{color:var(--gold2)}
 .win p.pts{color:var(--gold2);font-weight:800;font-size:16px;margin-top:6px}
 .tm b{color:var(--ink)}
+.emo{width:1.2em;height:1.2em;vertical-align:-.25em;display:inline-block}
+.emojis .emo{width:40px;height:40px;vertical-align:0}
+@media (max-width:520px){.emojis .emo{width:32px;height:32px}}
 .h3r{display:flex;align-items:center;gap:8px}
 .streak{font-size:12px;font-weight:800;color:var(--muted);background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:4px 8px;white-space:nowrap}
 .streak.on{color:#ffb547;border-color:#7a5418}
@@ -123,7 +126,7 @@ footer{color:#5d6b80;font-size:11px;text-align:center;margin-top:24px;line-heigh
   <p class="sub" id="sub">Guess today's League of Legends champion</p>
   <nav id="modes"></nav>
   <div class="cols"><div id="game"><p class="msg">Loading champions…</p></div><aside id="social" hidden></aside></div>
-  <footer>Leagledle isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties. Riot Games and all associated properties are trademarks or registered trademarks of Riot Games, Inc.</footer>
+  <footer>Leagledle isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties. Riot Games and all associated properties are trademarks or registered trademarks of Riot Games, Inc.<br>Emoji graphics by <a href="https://github.com/jdecked/twemoji" style="color:inherit">Twemoji</a>, licensed under CC-BY 4.0.</footer>
 </div>
 <script type="module">
 // Inside a Discord Activity everything must go through Discord's proxy (URL mappings set in the Developer Portal):
@@ -330,6 +333,10 @@ Zyra|Female|Support|Plant|Mana|Ranged|Ixtal|2012|🌹🌿🌱🥀|`;
 const INFO={};
 for(const line of RAW.split("\n")){const [n,g,pos,sp,res,rng,reg,yr,em,q]=line.split("|");INFO[n]={gender:g,pos:pos.split(","),species:sp.split(","),resource:res,range:rng.split(","),regions:reg.split(","),year:+yr,emojis:[...new Intl.Segmenter(undefined,{granularity:"grapheme"}).segment(em)].map(s=>s.segment),quote:q||""};}
 
+// Emojis are drawn with Twemoji (the set Discord uses, CC-BY 4.0) so they look the same on every device.
+const TW=(IN_DISCORD?"/gh":"https://cdn.jsdelivr.net/gh")+"/jdecked/twemoji@v17.0.2/assets/svg/";
+function twCode(e){const s=e.includes("\u200D")?e:e.replace(/\uFE0F/g,"");return [...s].map(c=>c.codePointAt(0).toString(16)).join("-");}
+const emo=e=>`<img class="emo" src="${TW}${twCode(e)}.svg" alt="${e}" draggable="false" onerror="this.replaceWith(this.alt)">`;
 const MODES=[["classic","Classic","🧩"],["ability","Ability","✨"],["splash","Splash","🖼️"],["quote","Quote","💬"],["emoji","Emoji","😀"]];
 const $=id=>document.getElementById(id);
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -364,7 +371,7 @@ function start(){
 }
 function randomRound(){const seed=String(Math.random());const p=pick(mode,seed);S={day:today(),random:true,target:p.target,r:[p.r1,p.r2,p.r3],guesses:[],done:false};save(skey(),S);render();}
 function dailyDone(m){const st=load("cg-"+m);return st&&st.day===today()&&!st.random&&st.done;}
-function renderNav(){$("modes").innerHTML=MODES.map(([k,l,e])=>`<button type="button" data-mode="${k}" aria-pressed="${mode===k}">${e} ${l}${dailyDone(k)?' <span class="ok">✓</span>':""}</button>`).join("");}
+function renderNav(){$("modes").innerHTML=MODES.map(([k,l,e])=>`<button type="button" data-mode="${k}" aria-pressed="${mode===k}">${emo(e)} ${l}${dailyDone(k)?' <span class="ok">✓</span>':""}</button>`).join("");}
 $("modes").addEventListener("click",e=>{const b=e.target.closest("[data-mode]");if(!b)return;mode=b.dataset.mode;start();});
 
 async function detail(c){if(DETAIL[c.id])return DETAIL[c.id];const j=await (await fetch(`${DD}/cdn/${V}/data/en_US/champion/${c.id}.json`)).json();return DETAIL[c.id]=j.data[c.id];}
@@ -402,7 +409,7 @@ function clueHtml(t,wrong){
   if(mode==="ability")return `<h2>Which champion has this ability?</h2><div class="clue"><img class="abil${!S.done&&S.gray!==false?" gray":""}" id="abImg" alt="Ability icon" src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=="></div><div class="tgl"><label><input type="checkbox" id="grayT" ${S.gray!==false?"checked":""}${S.done?" disabled":""}> Grayscale</label><label><input type="checkbox" id="rotT" ${S.rot!==false?"checked":""}${S.done?" disabled":""}> Rotated</label></div><p class="hint" style="margin-top:6px">Turning either off costs 20% of your points${(S.helps||[]).length?` · used: ${(S.helps||[]).map(h=>h==="color"?"colour":"upright").join(", ")}`:""}</p>${worthHtml(wrong)}`;
   if(mode==="splash")return `<h2>Which champion is in this splash art?</h2><div class="clue"><div class="splash"><img id="spImg" alt="Part of a splash art"></div></div><p class="hint" style="margin-top:8px">It zooms out a bit with every wrong guess.</p>${worthHtml(wrong)}`;
   if(mode==="quote"){const i=t.info;return `<h2>Which champion says this?</h2><p class="quote">“${esc(i.quote)}”</p>${!S.done&&wrong>=4?`<p class="hint" style="margin-top:10px">Hint: from ${esc(i.regions.join(" / "))}</p>`:""}${worthHtml(wrong)}`;}
-  if(mode==="emoji"){const E=t.info.emojis,show=S.done?E.length:Math.min(E.length,1+wrong);return `<h2>Which champion do these emojis describe?</h2><div class="emojis">${E.map((e,i)=>i<show?`<span>${e}</span>`:`<span class="hid">?</span>`).join("")}</div><p class="hint" style="margin-top:8px">A new emoji appears after each wrong guess.</p>${worthHtml(wrong)}`;}
+  if(mode==="emoji"){const E=t.info.emojis,show=S.done?E.length:Math.min(E.length,1+wrong);return `<h2>Which champion do these emojis describe?</h2><div class="emojis">${E.map((e,i)=>i<show?`<span>${emo(e)}</span>`:`<span class="hid">?</span>`).join("")}</div><p class="hint" style="margin-top:8px">A new emoji appears after each wrong guess.</p>${worthHtml(wrong)}`;}
   return "";
 }
 function guessesHtml(t){
@@ -507,10 +514,10 @@ function recapHtml(rc){
   if(!rc)return `<p class="sempty">Loading…</p>`;
   if(!rc.rows.length)return `<p class="sempty">Nobody here has played in the last 7 days.</p>`;
   const byDay={};for(const r of rc.rows){const d=byDay[r.day]=byDay[r.day]||{};const u=d[r.id]=d[r.id]||{id:r.id,name:r.name,avatar:r.avatar,m:{}};u.m[r.mode]=r;}
-  let h=`<p class="rcsum">${rc.streak?`🔥 <b>${rc.streak}-day streak</b>${rc.today?"":" · finish one today to keep it"}`:"No streak yet. Finish a puzzle today to start one!"}${rc.best>rc.streak?` · best ${rc.best}`:""}</p>`;
+  let h=`<p class="rcsum">${rc.streak?`${emo("🔥")} <b>${rc.streak}-day streak</b>${rc.today?"":" · finish one today to keep it"}`:"No streak yet. Finish a puzzle today to start one!"}${rc.best>rc.streak?` · best ${rc.best}`:""}</p>`;
   for(const day of Object.keys(byDay).sort().reverse()){
     h+=`<div class="rcday">${dayLabel(day)}</div>`;
-    h+=Object.values(byDay[day]).map(u=>`<div class="srow rc${ME&&u.id===ME.id?" me":""}"><img src="${avatar(u)}" alt=""><span class="nm">${esc(u.name)}<small class="rcm">${MODES.map(([k,,e])=>{const x=u.m[k];return x?`<span class="${x.done?"d":"p"}" title="${k}">${e}${x.done?x.guesses:"…"}</span>`:"";}).join("")}</small></span><span class="tm">${Object.values(u.m).reduce((a,x)=>a+(x.points||0),0)} pts</span></div>`).join("");
+    h+=Object.values(byDay[day]).map(u=>`<div class="srow rc${ME&&u.id===ME.id?" me":""}"><img src="${avatar(u)}" alt=""><span class="nm">${esc(u.name)}<small class="rcm">${MODES.map(([k,,e])=>{const x=u.m[k];return x?`<span class="${x.done?"d":"p"}" title="${k}">${emo(e)}${x.done?x.guesses:"…"}</span>`:"";}).join("")}</small></span><span class="tm">${Object.values(u.m).reduce((a,x)=>a+(x.points||0),0)} pts</span></div>`).join("");
   }
   return h;
 }
@@ -518,7 +525,7 @@ function renderSocial(){
   const el=$("social");if(!IN_DISCORD){el.hidden=true;return;}
   el.hidden=false;el.parentElement.classList.add("has");
   const lbl=MODES.find(m=>m[0]===mode)[1];
-  const rc=SOC.recap,stk=rc?`<span class="streak${rc.today?" on":""}" title="Days in a row someone here finished a puzzle${rc.best?` (best: ${rc.best})`:""}">🔥 ${rc.streak} day${rc.streak===1?"":"s"}</span>`:"";
+  const rc=SOC.recap,stk=rc?`<span class="streak${rc.today?" on":""}" title="Days in a row someone here finished a puzzle${rc.best?` (best: ${rc.best})`:""}">${emo("🔥")} ${rc.streak} day${rc.streak===1?"":"s"}</span>`:"";
   let h=`<h3><span>${SOC.tab==="recap"?"Last 7 days":`${lbl} · ${SOC.tab==="live"?"today":SOC.tab==="season"?"this month":"all time"}`}</span><span class="h3r">${stk}${SDK?`<button type="button" class="invb" id="invB">+ Invite</button>`:""}</span></h3>
   <div class="stabs"><div>${[["live","Live"],["season","Season"],["all","All-time"],["recap","Recap"]].map(([k,l])=>`<button type="button" data-stab="${k}" aria-pressed="${SOC.tab===k}">${l}</button>`).join("")}</div><div>${[["channel","Channel"],["server","Server"]].map(([k,l])=>`<button type="button" data-sscope="${k}" aria-pressed="${SOC.scope===k}"${k==="server"&&!CTX.guild?" disabled":""}>${l}</button>`).join("")}</div></div>`;
   if(SOC.msg)h+=`<p class="sempty">${esc(SOC.msg)}</p>`;
