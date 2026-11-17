@@ -376,7 +376,8 @@ async function loadItems(){
   const d=(await (await fetch(`${DD}/cdn/${V}/data/en_US/item.json`)).json()).data,seen=new Set(),L=[];
   for(const [id,it] of Object.entries(d)){
     const tg=it.tags||[];
-    if(!it.maps||!it.maps["11"]||!it.gold||!it.gold.purchasable||!(it.gold.total>0)||it.inStore===false||it.requiredChampion||it.requiredAlly||it.hideFromAll||tg.includes("Consumable")||tg.includes("Trinket")||/</.test(it.name)||seen.has(it.name))continue;
+    // Riot marks some ARAM/Arena-only items as Summoner's Rift too: skip 5+ digit ids (mode variants) and ARAM-only Guardian's items.
+    if(!it.maps||!it.maps["11"]||Number(id)>=10000||/^Guardian's /.test(it.name)||!it.gold||!it.gold.purchasable||!(it.gold.total>0)||it.inStore===false||it.requiredChampion||it.requiredAlly||it.hideFromAll||tg.includes("Consumable")||tg.includes("Trinket")||/</.test(it.name)||seen.has(it.name))continue;
     seen.add(it.name);L.push({id,name:it.name,item:true,cost:it.gold.total,tags:tg,st:statLines(it.description),from:(it.from||[]).map(f=>d[f]&&d[f].name).filter(Boolean),depth:it.depth||1});
   }
   ITEMS=L.sort((a,b)=>a.name.localeCompare(b.name));for(const i of ITEMS)IBY[i.name]=i;
