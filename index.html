@@ -174,7 +174,7 @@ if(IN_DISCORD){
       SOC.msg="";
       if(S&&!S.random)pushProgress();
       refreshSocial();
-    }catch(e){console.warn("Discord",e);SOC.msg="Couldn't sign in with Discord, so the leaderboard is off. Close and reopen the activity to try again. ("+esc(String(e&&(e.message||e.code)||e).slice(0,140))+")";renderSocial();}
+    }catch(e){console.warn("Discord",e);SOC.msg="Couldn't sign in with Discord, so the leaderboard is off. Close and reopen the activity to try again. ("+String(e&&(e.message||e.code)||e).slice(0,140)+")";renderSocial();}
   })();
 }
 

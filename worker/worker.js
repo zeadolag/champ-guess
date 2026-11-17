@@ -52,7 +52,7 @@ export default {
 async function token(req, env) {
   const { code } = await req.json();
   if (!code) return json({ error: "missing code" }, 400);
-  const r = await fetch("https://discord.com/api/oauth2/token", {
+  const exchange = redirect => fetch("https://discord.com/api/oauth2/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
@@ -60,10 +60,13 @@ async function token(req, env) {
       client_secret: env.DISCORD_CLIENT_SECRET,
       grant_type: "authorization_code",
       code,
+      ...(redirect ? { redirect_uri: redirect } : {}),
     }),
-  });
-  const t = await r.json();
-  if (!t.access_token) return json({ error: "token exchange failed", detail: t.error || null }, 400);
+  }).then(r => r.json());
+  let t = await exchange(null);
+  // If the app has a Redirect set in OAuth2, Discord wants it repeated here.
+  if (!t.access_token && /redirect_uri/i.test(String(t.error_description || ""))) t = await exchange(env.DISCORD_REDIRECT_URI || "https://127.0.0.1");
+  if (!t.access_token) return json({ error: "token exchange failed: " + (t.error_description || t.error || "unknown"), detail: t.error || null }, 400);
   const me = await (await fetch("https://discord.com/api/users/@me", { headers: { Authorization: `Bearer ${t.access_token}` } })).json();
   if (!me.id) return json({ error: "could not read user" }, 400);
   const name = me.global_name || me.username;
