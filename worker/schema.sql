@@ -20,3 +20,19 @@ CREATE TABLE IF NOT EXISTS plays (
 );
 CREATE INDEX IF NOT EXISTS plays_channel ON plays (channel_id, mode, day);
 CREATE INDEX IF NOT EXISTS plays_guild ON plays (guild_id, mode, day);
+CREATE TABLE IF NOT EXISTS cards (
+  channel_id TEXT NOT NULL,
+  day TEXT NOT NULL,
+  message_id TEXT NOT NULL,
+  via TEXT NOT NULL,
+  token TEXT,
+  app_id TEXT,
+  created_at INTEGER NOT NULL,
+  people TEXT
+);
+CREATE INDEX IF NOT EXISTS cards_channel ON cards (channel_id, created_at);
+CREATE TABLE IF NOT EXISTS recaps (
+  channel_id TEXT NOT NULL,
+  day TEXT NOT NULL,
+  PRIMARY KEY (channel_id, day)
+);

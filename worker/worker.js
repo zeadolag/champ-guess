@@ -4,6 +4,10 @@
 //   DISCORD_CLIENT_ID      (text)    your Discord Application ID
 //   DISCORD_CLIENT_SECRET  (secret)  from the Discord Developer Portal → OAuth2
 //   SESSION_KEY            (secret)  any long random text, used to sign logins
+// For the bot messages (optional, the game works without them):
+//   DISCORD_PUBLIC_KEY     (text)    Developer Portal → General Information → Public Key
+//   DISCORD_BOT_TOKEN      (secret)  Developer Portal → Bot → Reset Token
+// plus a Cron Trigger (e.g. "5 23 * * *") for the daily recap.
 
 const MODES = new Set(["classic", "ability", "splash", "quote", "emoji", "item"]);
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -18,14 +22,20 @@ function score(mode, guesses, helps) {
 }
 
 export default {
-  async fetch(req, env) {
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(dailyRecaps(env));
+  },
+  async fetch(req, env, ctx) {
     const url = new URL(req.url);
     // Discord's proxy may or may not keep the /api prefix, so accept both.
     const path = url.pathname.replace(/^\/(\.proxy\/)?api/, "") || "/";
     if (req.method === "OPTIONS") return new Response(null, { headers: cors() });
     try {
+      if (path === "/interactions" && req.method === "POST") return await interactions(req, env, ctx);
+      if (path === "/setup" && req.method === "GET") return await setup(url, env);
+      if (path === "/recap-now" && req.method === "GET") { if (url.searchParams.get("key") !== env.SESSION_KEY) return json({ error: "wrong key" }, 403); return json(await dailyRecaps(env, true)); }
       if (path === "/token" && req.method === "POST") return await token(req, env);
-      if (path === "/progress" && req.method === "POST") return await progress(req, env);
+      if (path === "/progress" && req.method === "POST") return await progress(req, env, ctx);
       if (path === "/live" && req.method === "GET") return await live(url, env);
       if (path === "/board" && req.method === "GET") return await board(url, env);
       if (path === "/recap" && req.method === "GET") return await recap(url, env);
@@ -64,7 +74,7 @@ async function token(req, env) {
 }
 
 // ---------- saving progress ----------
-async function progress(req, env) {
+async function progress(req, env, ctx) {
   const uid = await auth(req, env);
   if (!uid) return json({ error: "not logged in" }, 401);
   const b = await req.json();
@@ -90,6 +100,8 @@ async function progress(req, env) {
        guild_id = COALESCE(plays.guild_id, ?5),
        updated_at = ?10`
   ).bind(uid, b.mode, b.day, channel, guild, guesses, done, started, finished, Date.now(), points, bonus).run();
+  // Keep today's "is playing" card in this channel up to date.
+  if (channel && ctx) ctx.waitUntil(updateCard(env, channel).catch(() => {}));
   return json({ ok: true });
 }
 
@@ -164,6 +176,158 @@ async function recap(url, env) {
 function addDays(day, n) {
   const t = new Date(day + "T12:00:00Z"); t.setUTCDate(t.getUTCDate() + n);
   return t.toISOString().slice(0, 10);
+}
+
+// ================= Discord bot messages =================
+const API_D = "https://discord.com/api/v10";
+const GOLD = 0xC8AA6E, V2 = 1 << 15;
+const MODE_ICON = { classic: "🧩", ability: "✨", splash: "🖼️", quote: "💬", emoji: "😀", item: "💰" };
+const berlinDay = (t = Date.now()) => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Berlin" }).format(new Date(t));
+const avatarUrl = u => u.avatar ? `https://cdn.discordapp.com/avatars/${u.id}/${u.avatar}.png?size=128` : `https://cdn.discordapp.com/embed/avatars/${Number((BigInt(u.id) >> 22n) % 6n)}.png`;
+const playBtn = () => ({ type: 1, components: [{ type: 2, style: 1, label: "Play now!", custom_id: "launch" }] });
+async function discord(env, method, path, body, auth) {
+  const r = await fetch(API_D + path, { method, headers: { "Content-Type": "application/json", ...(auth ? { Authorization: auth } : {}) }, body: body ? JSON.stringify(body) : undefined });
+  const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch (_) {}
+  return { ok: r.ok, status: r.status, data: j };
+}
+const botAuth = env => env.DISCORD_BOT_TOKEN ? "Bot " + env.DISCORD_BOT_TOKEN : null;
+
+// Discord signs every interaction; reject anything that isn't really from Discord.
+async function verify(req, env, body) {
+  const sig = req.headers.get("X-Signature-Ed25519"), ts = req.headers.get("X-Signature-Timestamp");
+  if (!sig || !ts || !env.DISCORD_PUBLIC_KEY) return false;
+  const hex = h => new Uint8Array(h.match(/.{2}/g).map(x => parseInt(x, 16)));
+  for (const alg of [{ name: "Ed25519" }, { name: "NODE-ED25519", namedCurve: "NODE-ED25519" }]) {
+    try {
+      const key = await crypto.subtle.importKey("raw", hex(env.DISCORD_PUBLIC_KEY), alg, false, ["verify"]);
+      return await crypto.subtle.verify(alg.name === "Ed25519" ? "Ed25519" : alg, key, hex(sig), new TextEncoder().encode(ts + body));
+    } catch (_) {}
+  }
+  return false;
+}
+
+async function interactions(req, env, ctx) {
+  const body = await req.text();
+  if (!(await verify(req, env, body))) return new Response("bad signature", { status: 401 });
+  const i = JSON.parse(body);
+  if (i.type === 1) return json({ type: 1 }); // PING
+  const user = (i.member && i.member.user) || i.user;
+  const channel = i.channel_id || (i.channel && i.channel.id);
+  // The launch command (or the Play now! button): open the game, then post/refresh the card.
+  if ((i.type === 2 && i.data && i.data.type === 4) || (i.type === 3 && i.data && i.data.custom_id === "launch")) {
+    if (user) await env.DB.prepare("INSERT INTO users (id, name, avatar) VALUES (?1, ?2, ?3) ON CONFLICT(id) DO UPDATE SET name = ?2, avatar = ?3")
+      .bind(user.id, user.global_name || user.username, user.avatar || null).run();
+    if (channel && user) ctx.waitUntil(launchCard(env, i, channel, user, i.type === 2).catch(() => {}));
+    return json({ type: 12 }); // LAUNCH_ACTIVITY
+  }
+  return json({ type: 4, data: { content: "Open Leagledle from the Apps button.", flags: 64 } });
+}
+
+// Who is playing today in this channel, as a Discord card.
+async function buildCard(env, channel, day, peopleIds) {
+  const { results } = await env.DB.prepare(
+    `SELECT u.id, u.name, u.avatar, p.mode, p.guesses, p.done, p.points, p.bonus
+     FROM plays p JOIN users u ON u.id = p.user_id WHERE p.channel_id = ?1 AND p.day = ?2`
+  ).bind(channel, day).all();
+  const ppl = {};
+  for (const r of results) { const u = ppl[r.id] = ppl[r.id] || { id: r.id, name: r.name, avatar: r.avatar, m: {}, pts: 0 }; u.m[r.mode] = r; u.pts += r.points || 0; }
+  // People who opened the game here today but haven't guessed yet still show on the card.
+  const missing = (peopleIds || []).filter(id => !ppl[id]).slice(0, 8);
+  if (missing.length) {
+    const { results: us } = await env.DB.prepare(`SELECT id, name, avatar FROM users WHERE id IN (${missing.map((_, k) => "?" + (k + 1)).join(",")})`).bind(...missing).all();
+    for (const u of us) ppl[u.id] = { id: u.id, name: u.name, avatar: u.avatar, m: {}, pts: 0 };
+  }
+  const list = Object.values(ppl).sort((a, b) => b.pts - a.pts).slice(0, 8);
+  const solved = Object.values(ppl).filter(u => Object.values(u.m).some(x => x.done)).length;
+  const names = list.map(u => `**${u.name}**`);
+  const head = names.length <= 1 ? `${names[0] || "Someone"} is playing!` : `${names.slice(0, -1).join(", ")} and ${names.at(-1)} are playing!`;
+  const date = new Date(day + "T12:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+  const comps = [
+    { type: 10, content: head },
+    { type: 17, accent_color: GOLD, components: [
+      { type: 10, content: `## Leagledle\n${date}  ·  **${Object.keys(ppl).length}** playing  ·  **${solved}** solved` },
+      { type: 14, divider: true, spacing: 1 },
+      ...list.map(u => ({ type: 9, components: [{ type: 10, content: `**${u.name}**  ·  ${u.pts} pts\n${Object.keys(MODE_ICON).map(k => { const x = u.m[k]; return x ? `${MODE_ICON[k]} ${x.done ? "✓" + x.guesses : "…" + x.guesses}${k === "ability" && x.bonus === 1 ? "★" : ""}` : null; }).filter(Boolean).join("   ") || "Just started"}` }], accessory: { type: 11, media: { url: avatarUrl(u) } } })),
+    ] },
+    playBtn(),
+  ];
+  return { flags: V2, components: comps, allowed_mentions: { parse: [] } };
+}
+
+async function launchCard(env, i, channel, user, isCommand) {
+  const day = berlinDay();
+  const last = await env.DB.prepare("SELECT * FROM cards WHERE channel_id = ?1 AND day = ?2 ORDER BY created_at DESC LIMIT 1").bind(channel, day).first();
+  // Reuse today's card if it's recent (or if this came from its Play now! button) instead of posting a new one.
+  if (last && (!isCommand || Date.now() - last.created_at < 30 * 60e3)) {
+    const ppl = JSON.parse(last.people || "[]");
+    if (!ppl.includes(user.id)) { ppl.push(user.id); await env.DB.prepare("UPDATE cards SET people = ?1 WHERE message_id = ?2").bind(JSON.stringify(ppl), last.message_id).run(); }
+    return updateCard(env, channel);
+  }
+  const msg = await buildCard(env, channel, day, [user.id]);
+  let res = null, via = "bot";
+  if (botAuth(env)) res = await discord(env, "POST", `/channels/${channel}/messages`, msg, botAuth(env));
+  if (!res || !res.ok) { via = "hook"; res = await discord(env, "POST", `/webhooks/${i.application_id}/${i.token}?wait=true`, msg); }
+  if (res && res.ok && res.data && res.data.id)
+    await env.DB.prepare("INSERT INTO cards (channel_id, day, message_id, via, token, app_id, created_at, people) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)")
+      .bind(channel, day, res.data.id, via, i.token, i.application_id, Date.now(), JSON.stringify([user.id])).run();
+}
+
+async function updateCard(env, channel) {
+  const c = await env.DB.prepare("SELECT * FROM cards WHERE channel_id = ?1 ORDER BY created_at DESC LIMIT 1").bind(channel).first();
+  if (!c || Date.now() - c.created_at > 864e5) return;
+  const msg = await buildCard(env, channel, c.day, JSON.parse(c.people || "[]"));
+  delete msg.flags;
+  if (c.via === "bot" && botAuth(env)) return discord(env, "PATCH", `/channels/${channel}/messages/${c.message_id}`, msg, botAuth(env));
+  if (Date.now() - c.created_at < 14 * 60e3) return discord(env, "PATCH", `/webhooks/${c.app_id}/${c.token}/messages/${c.message_id}`, msg);
+}
+
+// Every night: yesterday's results and the group's streak, in each channel that plays.
+async function dailyRecaps(env, force) {
+  if (!botAuth(env)) return { error: "no bot token" };
+  const today = berlinDay(), y = addDays(today, -1), y2 = addDays(today, -2);
+  const { results: chans } = await env.DB.prepare("SELECT DISTINCT channel_id FROM plays WHERE channel_id IS NOT NULL AND day >= ?1 AND day <= ?2").bind(y2, y).all();
+  const out = [];
+  for (const { channel_id: ch } of chans) {
+    const done = await env.DB.prepare("SELECT 1 FROM recaps WHERE channel_id = ?1 AND day = ?2").bind(ch, y).first();
+    if (done && !force) continue;
+    const { results: dayRows } = await env.DB.prepare("SELECT DISTINCT day FROM plays WHERE channel_id = ?1 AND done = 1 AND day <= ?2 ORDER BY day DESC LIMIT 400").bind(ch, y).all();
+    const days = new Set(dayRows.map(r => r.day));
+    let streak = 0, d = y; while (days.has(d)) { streak++; d = addDays(d, -1); }
+    let content;
+    if (streak > 0) {
+      const { results } = await env.DB.prepare(
+        `SELECT u.id, u.name, p.mode, p.guesses, p.done, p.points, p.bonus FROM plays p JOIN users u ON u.id = p.user_id WHERE p.channel_id = ?1 AND p.day = ?2`
+      ).bind(ch, y).all();
+      const ppl = {};
+      for (const r of results) { const u = ppl[r.id] = ppl[r.id] || { id: r.id, m: [], pts: 0 }; u.pts += r.points || 0; if (r.done) u.m.push(`${MODE_ICON[r.mode]}${r.guesses}${r.mode === "ability" && r.bonus === 1 ? "★" : ""}`); }
+      const rank = Object.values(ppl).filter(u => u.pts > 0).sort((a, b) => b.pts - a.pts);
+      content = `**Your group is on ${/^8|^1[18]$/.test(String(streak)) ? "an" : "a"} ${streak}-day streak!** 🔥 Here are yesterday's results:\n` +
+        rank.map((u, k) => `${k === 0 ? "👑" : k === 1 ? "🥈" : k === 2 ? "🥉" : "▫️"} ${u.pts} pts: <@${u.id}>  ${u.m.join(" ")}`).join("\n");
+    } else {
+      // Only announce a broken streak once, the day after it breaks.
+      let before = 0, e = y2; while (days.has(e)) { before++; e = addDays(e, -1); }
+      if (!before) continue;
+      content = `**${before}-day streak broken!** Nobody finished yesterday's Leagledle... but today is a new day ☀️`;
+    }
+    const r = await discord(env, "POST", `/channels/${ch}/messages`, { content, components: [playBtn()], allowed_mentions: { parse: [] } }, botAuth(env));
+    if (r.ok) await env.DB.prepare("INSERT OR IGNORE INTO recaps (channel_id, day) VALUES (?1, ?2)").bind(ch, y).run();
+    out.push({ channel: ch, ok: r.ok, status: r.status });
+  }
+  return { sent: out };
+}
+
+// One-time setup: make the Launch command come to this server, so the bot can post its card.
+async function setup(url, env) {
+  if (url.searchParams.get("key") !== env.SESSION_KEY) return json({ error: "wrong key" }, 403);
+  if (!botAuth(env)) return json({ error: "add DISCORD_BOT_TOKEN first" }, 400);
+  const app = env.DISCORD_CLIENT_ID;
+  const list = await discord(env, "GET", `/applications/${app}/commands`, null, botAuth(env));
+  if (!list.ok) return json({ error: "could not read commands", status: list.status, detail: list.data }, 400);
+  const ep = (list.data || []).find(c => c.type === 4);
+  const r = ep
+    ? await discord(env, "PATCH", `/applications/${app}/commands/${ep.id}`, { handler: 1 }, botAuth(env))
+    : await discord(env, "POST", `/applications/${app}/commands`, { name: "launch", description: "Play Leagledle", type: 4, handler: 1, integration_types: [0, 1], contexts: [0, 1, 2] }, botAuth(env));
+  return json({ ok: r.ok, status: r.status, command: r.data && { id: r.data.id, name: r.data.name, handler: r.data.handler } });
 }
 
 // ---------- helpers ----------
