@@ -5,10 +5,11 @@
 //   DISCORD_CLIENT_SECRET  (secret)  from the Discord Developer Portal → OAuth2
 //   SESSION_KEY            (secret)  any long random text, used to sign logins
 
-const MODES = new Set(["classic", "ability", "splash", "quote", "emoji"]);
+const MODES = new Set(["classic", "ability", "splash", "quote", "emoji", "item"]);
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 // Scoring: 100 for finishing, minus 10 per wrong guess (never below 10).
-// In Ability mode, turning off grayscale or rotation each costs 20% of that.
+// In Ability mode, turning off grayscale or rotation each costs 20% of that,
+// and naming the right ability (Passive/Q/W/E/R) afterwards adds 20.
 const HELPS = new Set(["color", "upright"]);
 function score(mode, guesses, helps) {
   let p = Math.max(10, 100 - 10 * (Math.max(1, guesses) - 1));
@@ -73,20 +74,22 @@ async function progress(req, env) {
   const finished = done ? (clampInt(b.finished, 0, 9e15) || Date.now()) : null;
   const channel = str(b.channel), guild = str(b.guild);
   const helps = Array.isArray(b.helps) ? b.helps.filter(h => HELPS.has(h)) : [];
-  const points = done ? score(b.mode, guesses, helps) : 0;
+  const bonus = done && b.mode === "ability" && (b.bonus === 0 || b.bonus === 1) ? b.bonus : null;
+  const points = done ? score(b.mode, guesses, helps) + (bonus === 1 ? 20 : 0) : 0;
   // Once a day's puzzle is finished it can't be changed again.
   await env.DB.prepare(
-    `INSERT INTO plays (user_id, mode, day, channel_id, guild_id, guesses, done, started_at, finished_at, updated_at, points)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+    `INSERT INTO plays (user_id, mode, day, channel_id, guild_id, guesses, done, started_at, finished_at, updated_at, points, bonus)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
      ON CONFLICT(user_id, mode, day) DO UPDATE SET
        guesses = CASE WHEN plays.done = 1 THEN plays.guesses ELSE ?6 END,
-       points = CASE WHEN plays.done = 1 THEN plays.points ELSE ?11 END,
+       points = CASE WHEN plays.done = 1 THEN plays.points + CASE WHEN plays.bonus IS NULL AND ?12 = 1 THEN 20 ELSE 0 END ELSE ?11 END,
+       bonus = CASE WHEN plays.bonus IS NULL THEN ?12 ELSE plays.bonus END,
        finished_at = CASE WHEN plays.done = 1 THEN plays.finished_at ELSE ?9 END,
        done = MAX(plays.done, ?7),
        channel_id = COALESCE(plays.channel_id, ?4),
        guild_id = COALESCE(plays.guild_id, ?5),
        updated_at = ?10`
-  ).bind(uid, b.mode, b.day, channel, guild, guesses, done, started, finished, Date.now(), points).run();
+  ).bind(uid, b.mode, b.day, channel, guild, guesses, done, started, finished, Date.now(), points, bonus).run();
   return json({ ok: true });
 }
 
