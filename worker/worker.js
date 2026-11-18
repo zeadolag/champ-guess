@@ -113,7 +113,7 @@ async function progress(req, env, ctx) {
   if (done && !(before && before.done)) {
     const row = await env.DB.prepare("SELECT guesses, guild_id, channel_id FROM plays WHERE user_id = ?1 AND mode = ?2 AND day = ?3").bind(uid, b.mode, b.day).first();
     const scope = row && (row.guild_id || row.channel_id);
-    if (scope) elo = await applyElo(env, uid, scope, b.mode, b.day, row.guesses + (b.mode === "ability" ? new Set(helps).size : 0)).catch(() => null);
+    if (scope) elo = await estimateElo(env, uid, scope, b.mode, b.day, row.guesses + (b.mode === "ability" ? new Set(helps).size : 0)).catch(() => null);
   }
   return json({ ok: true, elo });
 }
@@ -195,30 +195,45 @@ function addDays(day, n) {
 // Each server has its own ladder. A puzzle's difficulty is how many guesses everyone
 // (in every server) needed for it. Beat that and you climb, need more and you drop;
 // higher-rated players are expected to beat it by more. Everyone starts at 1000 (Gold II).
+// LP is only settled after midnight, once everyone's results for the day are in, so playing
+// early or late makes no difference. Until then the game shows an estimate.
 const ELO_START = 1000, PRIOR = { classic: 6, ability: 5, splash: 5, quote: 4, emoji: 4, item: 6 };
-async function applyElo(env, uid, scope, mode, day, guesses) {
-  if (await env.DB.prepare("SELECT 1 FROM elo_log WHERE user_id = ?1 AND scope_id = ?2 AND mode = ?3 AND day = ?4").bind(uid, scope, mode, day).first()) return null;
-  let perf = 0;
-  if (guesses != null) {
-    const a = await env.DB.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(guesses), 0) AS s FROM plays WHERE mode = ?1 AND day = ?2 AND done = 1 AND user_id != ?3").bind(mode, day, uid).first();
-    const avg = (PRIOR[mode] * 3 + a.s) / (3 + a.n);
-    perf = 1 / (1 + Math.pow(2, (guesses - avg) / 1.2));
-  }
+async function puzzleAvg(env, mode, day, uid) {
+  const a = await env.DB.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(guesses), 0) AS s FROM plays WHERE mode = ?1 AND day = ?2 AND done = 1 AND user_id != ?3").bind(mode, day, uid).first();
+  return (PRIOR[mode] * 3 + a.s) / (3 + a.n);
+}
+async function eloChange(env, uid, scope, mode, day, guesses) {
+  const perf = guesses == null ? 0 : 1 / (1 + Math.pow(2, (guesses - await puzzleAvg(env, mode, day, uid)) / 1.2));
   const r = await env.DB.prepare("SELECT elo, games FROM ratings WHERE scope_id = ?1 AND user_id = ?2").bind(scope, uid).first();
   const old = r ? r.elo : ELO_START, games = r ? r.games : 0;
   const expect = 1 / (1 + Math.pow(10, (ELO_START - old) / 400));
-  const delta = (games < 10 ? 32 : 16) * (perf - expect), now = old + delta;
-  await env.DB.prepare("INSERT INTO ratings (scope_id, user_id, elo, games) VALUES (?1, ?2, ?3, 1) ON CONFLICT(scope_id, user_id) DO UPDATE SET elo = ?3, games = ratings.games + 1").bind(scope, uid, now).run();
-  await env.DB.prepare("INSERT INTO elo_log (user_id, scope_id, mode, day, delta, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)").bind(uid, scope, mode, day, delta, Date.now()).run();
-  return { before: old, after: now, delta };
+  const delta = (games < 10 ? 32 : 16) * (perf - expect);
+  return { before: old, after: old + delta, delta };
 }
-// Puzzles started but never solved count as a loss once the day is over.
-async function settleAbandoned(env, day) {
+// Shown right after solving: what you'd get if the day ended now.
+async function estimateElo(env, uid, scope, mode, day, guesses) {
+  return { ...(await eloChange(env, uid, scope, mode, day, guesses)), provisional: true };
+}
+// Ability helps (color/upright) count as an extra guess each; they're baked into the points.
+function helpsFromPoints(p) {
+  if (p.mode !== "ability" || !p.done) return 0;
+  const base = Math.max(10, 100 - 10 * (Math.max(1, p.guesses) - 1)), pts = (p.points || 0) - (p.bonus === 1 ? 20 : 0);
+  return pts > 0 && pts < base ? Math.max(0, Math.round(Math.log(pts / base) / Math.log(0.8))) : 0;
+}
+// After midnight: settle a whole day for everyone, against the final average.
+// Puzzles started but never solved count as a loss.
+async function settleDay(env, day) {
   const { results } = await env.DB.prepare(
-    `SELECT p.user_id, p.mode, COALESCE(p.guild_id, p.channel_id) AS scope FROM plays p
-     WHERE p.day = ?1 AND p.done = 0 AND p.guesses > 0 AND COALESCE(p.guild_id, p.channel_id) IS NOT NULL`
+    `SELECT p.user_id, p.mode, p.guesses, p.done, p.points, p.bonus, COALESCE(p.guild_id, p.channel_id) AS scope FROM plays p
+     WHERE p.day = ?1 AND p.guesses > 0 AND COALESCE(p.guild_id, p.channel_id) IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM elo_log l WHERE l.user_id = p.user_id AND l.scope_id = COALESCE(p.guild_id, p.channel_id) AND l.mode = p.mode AND l.day = p.day)
+     ORDER BY p.finished_at`
   ).bind(day).all();
-  for (const p of results) await applyElo(env, p.user_id, p.scope, p.mode, day, null).catch(() => {});
+  for (const p of results) {
+    const c = await eloChange(env, p.user_id, p.scope, p.mode, day, p.done ? p.guesses + helpsFromPoints(p) : null);
+    await env.DB.prepare("INSERT INTO ratings (scope_id, user_id, elo, games) VALUES (?1, ?2, ?3, 1) ON CONFLICT(scope_id, user_id) DO UPDATE SET elo = ?3, games = ratings.games + 1").bind(p.scope, p.user_id, c.after).run();
+    await env.DB.prepare("INSERT OR IGNORE INTO elo_log (user_id, scope_id, mode, day, delta, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)").bind(p.user_id, p.scope, p.mode, day, c.delta, Date.now()).run();
+  }
   return results.length;
 }
 async function rankBoard(url, env) {
@@ -347,7 +362,7 @@ async function updateCard(env, channel) {
 // Every night: yesterday's results and the group's streak, in each channel that plays.
 async function dailyRecaps(env, force) {
   const today = berlinDay(), y = addDays(today, -1), y2 = addDays(today, -2);
-  await settleAbandoned(env, y).catch(() => {});
+  await settleDay(env, y).catch(() => {});
   if (!botAuth(env)) return { error: "no bot token" };
   const { results: chans } = await env.DB.prepare("SELECT DISTINCT channel_id FROM plays WHERE channel_id IS NOT NULL AND day >= ?1 AND day <= ?2").bind(y2, y).all();
   const out = [];
@@ -365,8 +380,16 @@ async function dailyRecaps(env, force) {
       const ppl = {};
       for (const r of results) { const u = ppl[r.id] = ppl[r.id] || { id: r.id, m: [], pts: 0 }; u.pts += r.points || 0; if (r.done) u.m.push(`${MODE_ICON[r.mode]}${r.guesses}${(r.mode === "ability" || r.mode === "splash") && r.bonus === 1 ? "★" : ""}`); }
       const rank = Object.values(ppl).filter(u => u.pts > 0).sort((a, b) => b.pts - a.pts);
+      // Ranked: everyone's settled LP change for yesterday and their rank now.
+      const g = await env.DB.prepare("SELECT guild_id FROM plays WHERE channel_id = ?1 AND guild_id IS NOT NULL LIMIT 1").bind(ch).first();
+      const scope = (g && g.guild_id) || ch;
+      for (const u of rank) {
+        const l = await env.DB.prepare("SELECT SUM(delta) AS d FROM elo_log WHERE user_id = ?1 AND scope_id = ?2 AND day = ?3").bind(u.id, scope, y).first();
+        const r = await env.DB.prepare("SELECT elo FROM ratings WHERE scope_id = ?1 AND user_id = ?2").bind(scope, u.id).first();
+        if (r && l && l.d != null) { const lp = Math.round(l.d * 4); u.lp = ` · ${rankName(r.elo)} (${lp >= 0 ? "+" : ""}${lp} LP)`; }
+      }
       content = `**Your group is on ${/^8|^1[18]$/.test(String(streak)) ? "an" : "a"} ${streak}-day streak!** 🔥 Here are yesterday's results:\n` +
-        rank.map((u, k) => `${k === 0 ? "👑" : k === 1 ? "🥈" : k === 2 ? "🥉" : "▫️"} ${u.pts} pts: <@${u.id}>  ${u.m.join(" ")}`).join("\n");
+        rank.map((u, k) => `${k === 0 ? "👑" : k === 1 ? "🥈" : k === 2 ? "🥉" : "▫️"} ${u.pts} pts: <@${u.id}>  ${u.m.join(" ")}${u.lp || ""}`).join("\n");
     } else {
       // Only announce a broken streak once, the day after it breaks.
       let before = 0, e = y2; while (days.has(e)) { before++; e = addDays(e, -1); }
