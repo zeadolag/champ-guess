@@ -13,7 +13,7 @@ const MODES = new Set(["classic", "ability", "splash", "quote", "emoji", "item"]
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 // Scoring: 100 for finishing, minus 10 per wrong guess (never below 10).
 // In Ability mode, turning off grayscale or rotation each costs 20% of that,
-// and naming the right ability (Passive/Q/W/E/R) afterwards adds 20.
+// and naming the right ability (Passive/Q/W/E/R), or in Splash the right skin, afterwards adds 20.
 const HELPS = new Set(["color", "upright"]);
 function score(mode, guesses, helps) {
   let p = Math.max(10, 100 - 10 * (Math.max(1, guesses) - 1));
@@ -89,7 +89,7 @@ async function progress(req, env, ctx) {
   const finished = done ? (clampInt(b.finished, 0, 9e15) || Date.now()) : null;
   const channel = str(b.channel), guild = str(b.guild);
   const helps = Array.isArray(b.helps) ? b.helps.filter(h => HELPS.has(h)) : [];
-  const bonus = done && b.mode === "ability" && (b.bonus === 0 || b.bonus === 1) ? b.bonus : null;
+  const bonus = done && (b.mode === "ability" || b.mode === "splash") && (b.bonus === 0 || b.bonus === 1) ? b.bonus : null;
   const points = done ? score(b.mode, guesses, helps) + (bonus === 1 ? 20 : 0) : 0;
   const before = await env.DB.prepare("SELECT done FROM plays WHERE user_id = ?1 AND mode = ?2 AND day = ?3").bind(uid, b.mode, b.day).first();
   // Once a day's puzzle is finished it can't be changed again.
@@ -310,7 +310,7 @@ async function buildCard(env, channel, day, peopleIds) {
     { type: 17, accent_color: GOLD, components: [
       { type: 10, content: `## Leagledle\n${date}  ·  **${Object.keys(ppl).length}** playing  ·  **${solved}** solved` },
       { type: 14, divider: true, spacing: 1 },
-      ...list.map(u => ({ type: 9, components: [{ type: 10, content: `**${u.name}**${u.rank ? `  ·  ${u.rank}` : ""}  ·  ${u.pts} pts\n${Object.keys(MODE_ICON).map(k => { const x = u.m[k]; return x ? `${MODE_ICON[k]} ${x.done ? "✓" + x.guesses : "…" + x.guesses}${k === "ability" && x.bonus === 1 ? "★" : ""}` : null; }).filter(Boolean).join("   ") || "Just started"}` }], accessory: { type: 11, media: { url: avatarUrl(u) } } })),
+      ...list.map(u => ({ type: 9, components: [{ type: 10, content: `**${u.name}**${u.rank ? `  ·  ${u.rank}` : ""}  ·  ${u.pts} pts\n${Object.keys(MODE_ICON).map(k => { const x = u.m[k]; return x ? `${MODE_ICON[k]} ${x.done ? "✓" + x.guesses : "…" + x.guesses}${(k === "ability" || k === "splash") && x.bonus === 1 ? "★" : ""}` : null; }).filter(Boolean).join("   ") || "Just started"}` }], accessory: { type: 11, media: { url: avatarUrl(u) } } })),
     ] },
     playBtn(),
   ];
@@ -363,7 +363,7 @@ async function dailyRecaps(env, force) {
         `SELECT u.id, u.name, p.mode, p.guesses, p.done, p.points, p.bonus FROM plays p JOIN users u ON u.id = p.user_id WHERE p.channel_id = ?1 AND p.day = ?2`
       ).bind(ch, y).all();
       const ppl = {};
-      for (const r of results) { const u = ppl[r.id] = ppl[r.id] || { id: r.id, m: [], pts: 0 }; u.pts += r.points || 0; if (r.done) u.m.push(`${MODE_ICON[r.mode]}${r.guesses}${r.mode === "ability" && r.bonus === 1 ? "★" : ""}`); }
+      for (const r of results) { const u = ppl[r.id] = ppl[r.id] || { id: r.id, m: [], pts: 0 }; u.pts += r.points || 0; if (r.done) u.m.push(`${MODE_ICON[r.mode]}${r.guesses}${(r.mode === "ability" || r.mode === "splash") && r.bonus === 1 ? "★" : ""}`); }
       const rank = Object.values(ppl).filter(u => u.pts > 0).sort((a, b) => b.pts - a.pts);
       content = `**Your group is on ${/^8|^1[18]$/.test(String(streak)) ? "an" : "a"} ${streak}-day streak!** 🔥 Here are yesterday's results:\n` +
         rank.map((u, k) => `${k === 0 ? "👑" : k === 1 ? "🥈" : k === 2 ? "🥉" : "▫️"} ${u.pts} pts: <@${u.id}>  ${u.m.join(" ")}`).join("\n");
