@@ -62,7 +62,7 @@ nav button .ok{color:var(--green);font-size:13px}
 .chip.y{background:#1f7a4a;color:#fff}.chip.n{background:rgba(0,0,0,.35);color:#e8c9c9}
 .bonus{margin:12px auto 4px;max-width:420px}.bonus p{margin:0 0 8px;color:var(--ink)}
 .bks{display:flex;gap:6px;justify-content:center;flex-wrap:wrap}.bks .btn{min-width:56px;padding:8px 12px}
-.sks{max-height:230px;overflow-y:auto;padding:2px}.sks .btn{font-size:13px}
+.skrow{margin:0;text-align:left}.skrow .sugg{max-height:240px}
 .bres{font-weight:800;margin:10px 0 0}.bres.ok{color:var(--green)!important}.bres.no{color:#e0707f!important}
 .h3r{display:flex;align-items:center;gap:8px}
 .streak{font-size:12px;font-weight:800;color:var(--muted);background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:4px 8px;white-space:nowrap}
@@ -536,7 +536,9 @@ async function afterRender(t,wrong){
   }
   if(mode==="splash"){
     const d=await detail(t).catch(()=>null);if(!d||mode!=="splash")return;
-    const sk=d.skins[Math.floor(S.r[0]*d.skins.length)],im=$("spImg");if(!im)return;
+    // Chromas only recolour the model and share their skin's splash, so they're left out.
+    const skins=d.skins.filter(x=>x.parentSkin==null);
+    const sk=skins[Math.floor(S.r[0]*skins.length)],im=$("spImg");if(!im)return;
     im.src=`${DD}/cdn/img/champion/splash/${t.id}_${sk.num}.jpg`;
     const z=S.done?1:Math.max(1.6,8.5-wrong*1);im.style.transformOrigin=`${15+S.r[1]*70}% ${15+S.r[2]*70}%`;im.style.transform=`scale(${z})`;
     const skName=x=>x.num===0?"Default":x.name;
@@ -545,8 +547,20 @@ async function afterRender(t,wrong){
     // Bonus: after finding the champion, one try at naming the skin for +20.
     const box=$("skB");
     if(box){
-      if(S.bonus==null){box.innerHTML=`<div class="bonus"><p><b>Bonus:</b> which skin is it? One try, +20 points</p><div class="bks sks">${d.skins.map(x=>`<button type="button" class="btn" data-sk="${esc(skName(x))}">${esc(skName(x))}</button>`).join("")}</div></div>`;
-        box.querySelectorAll("[data-sk]").forEach(b=>b.onclick=()=>{S.bonusKey=b.dataset.sk;S.bonus=b.dataset.sk===S.skKey?1:0;save(skey(),S);pushProgress();render();setTimeout(refreshSocial,400);});}
+      if(S.bonus==null){
+        box.innerHTML=`<div class="bonus"><p><b>Bonus:</b> which skin is it? One try, +20 points</p><div class="inrow skrow"><input id="skIn" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Type or pick a skin…" aria-label="Skin name"><button id="skBtn" type="button" disabled>Guess</button><div class="sugg" id="skSugg" role="listbox"></div></div></div>`;
+        const inp=$("skIn"),sb=$("skSugg"),btn=$("skBtn"),names=skins.map(skName);let act=0,items=[];
+        const pick=n=>{S.bonusKey=n;S.bonus=n===S.skKey?1:0;save(skey(),S);pushProgress();render();setTimeout(refreshSocial,400);};
+        const draw=()=>{const q=norm(inp.value);items=q?names.filter(n=>norm(n).startsWith(q)).concat(names.filter(n=>!norm(n).startsWith(q)&&norm(n).includes(q))):names.slice();
+          act=0;sb.classList.toggle("on",items.length>0);sb.innerHTML=items.map((n,i)=>`<button type="button" role="option" data-sk="${esc(n)}" class="${i===act?"act":""}">${esc(n)}</button>`).join("");btn.disabled=!q||!items.length;};
+        inp.addEventListener("input",draw);inp.addEventListener("focus",draw);
+        inp.addEventListener("keydown",e=>{if(e.key==="ArrowDown"||e.key==="ArrowUp"){if(!items.length)return;e.preventDefault();act=(act+(e.key==="ArrowDown"?1:-1)+items.length)%items.length;[...sb.children].forEach((b,i)=>b.classList.toggle("act",i===act));sb.children[act].scrollIntoView({block:"nearest"});}
+          else if(e.key==="Enter"){e.preventDefault();if(items[act])pick(items[act]);}else if(e.key==="Escape")sb.classList.remove("on");});
+        sb.addEventListener("mousedown",e=>e.preventDefault());
+        sb.addEventListener("click",e=>{const b=e.target.closest("[data-sk]");if(b)pick(b.dataset.sk);});
+        btn.addEventListener("click",()=>{if(items[act])pick(items[act]);});
+        inp.addEventListener("blur",()=>setTimeout(()=>sb.classList.remove("on"),150));
+      }
       else box.innerHTML=`<p class="bres ${S.bonus?"ok":"no"}">${S.bonus?`✓ Right, it's ${esc(S.skKey)}!`:`✗ You said ${esc(S.bonusKey)}, it was ${esc(S.skKey)}`}</p>`;
     }
     if(S.done&&S.bonus!=null){const p=document.querySelector(".win .wsub");if(p)p.textContent=`${S.extra} · Found in ${S.guesses.length} guess${S.guesses.length===1?"":"es"}`;}
