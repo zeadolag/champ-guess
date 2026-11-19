@@ -551,8 +551,14 @@ async function afterRender(t,wrong){
     // Chromas only recolour the model and share their skin's splash, so they're left out.
     const skins=d.skins.filter(x=>x.parentSkin==null);
     const sk=skins[Math.floor(S.r[0]*skins.length)],im=$("spImg");if(!im)return;
-    im.src=`${DD}/cdn/img/champion/splash/${t.id}_${sk.num}.jpg`;
-    const z=S.done?1:Math.max(1.6,8.5-wrong*1);im.style.transformOrigin=`${15+S.r[1]*70}% ${15+S.r[2]*70}%`;im.style.transform=`scale(${z})`;
+    // From Nov 20: use Riot's "centered" splash (cropped around the champion) and zoom near the middle,
+    // so the start is on the champion instead of random background.
+    const centered=S.random||S.day>="2026-11-20";
+    const z=S.done?1:Math.max(1.6,8.5-wrong*1);
+    const setOrigin=c=>{im.style.transformOrigin=c?`${38+S.r[1]*24}% ${28+S.r[2]*26}%`:`${15+S.r[1]*70}% ${15+S.r[2]*70}%`;};
+    im.onerror=centered?()=>{im.onerror=null;setOrigin(false);im.src=`${DD}/cdn/img/champion/splash/${t.id}_${sk.num}.jpg`;}:null;
+    im.src=`${DD}/cdn/img/champion/${centered?"centered":"splash"}/${t.id}_${sk.num}.jpg`;
+    setOrigin(centered);im.style.transform=`scale(${z})`;
     const skName=x=>x.num===0?"Default":x.name;
     S.extra=sk.num===0?"Default skin":sk.name;
     if(S.skKey!==skName(sk)){S.skKey=skName(sk);save(skey(),S);}
