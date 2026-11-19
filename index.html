@@ -93,6 +93,8 @@ nav button .ok{color:var(--green);font-size:13px}
 .chead,.crow{display:grid;grid-template-columns:repeat(8,minmax(74px,1fr));gap:6px;min-width:640px}
 .chead div{font-size:11.5px;color:var(--muted);text-align:center;padding-bottom:4px;border-bottom:1px solid var(--line);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
 .crow{margin-top:6px}
+.twin{display:flex;align-items:center;gap:12px;justify-content:center;margin:12px auto 0;max-width:460px;text-align:left;font-size:13.5px;color:var(--muted)}
+.twin img{width:56px;height:56px;border-radius:10px;filter:grayscale(1) contrast(1.1);border:1px solid var(--line)}
 .rpill{display:inline-block;font-size:11px;font-weight:800;padding:1px 7px;border-radius:999px;color:var(--rc);border:1px solid var(--rc);background:color-mix(in srgb,var(--rc) 14%,transparent);letter-spacing:.02em}
 .elo{margin-top:6px;font-weight:600}.elo .rpill{font-size:13px;padding:2px 9px}.elo b.up{color:#3ccf7d}.elo b.dn{color:#ef6a6a}.elon{display:block;font-size:12px;color:var(--muted);font-weight:500;margin-top:2px}
 .itab .chead,.itab .crow{grid-template-columns:72px 1fr 1fr 2.2fr .8fr 1fr;min-width:560px}
@@ -396,7 +398,7 @@ const gold=n=>Number(n).toLocaleString("en-US");
 function statLines(desc){
   const m=/<stats>([\s\S]*?)<\/stats>/i.exec(desc||"");if(!m)return null;
   const out=m[1].split(/<br\s*\/?>/i).map(l=>l.replace(/<[^>]+>/g," ").replace(/[\d.,%+]+/g," ").replace(/\s+/g," ").trim()).filter(Boolean)
-    .map(n=>({"Critical Strike Chance":"Crit","Base Mana Regen":"Mana Regen","Base Health Regen":"Health Regen","Heal and Shield Power":"Heal & Shield Power"})[n]||n);
+    .map(n=>({"Critical Strike Chance":"Crit","Base Mana Regen":"Mana Regen","Base Health Regen":"Health Regen","Heal and Shield Power":"Heal & Shield Power","Gold Per Seconds":"Gold Generation"})[n]||n);
   return out.length?[...new Set(out)]:null;
 }
 function itemType(i){
@@ -429,12 +431,11 @@ async function init(){
 // Quote mode switched from one quote per champion to many (quotes.json) on NEWQ; earlier days keep the old pool.
 const NEWQ="2026-11-20";let QUOTES=null;
 async function loadQuotes(){if(QUOTES)return;QUOTES=await (await fetch("quotes.json")).json();for(const c of CH)c.quotes=QUOTES[c.name]||null;}
-// Items/champions that match another one on every column can't be told apart, so from Nov 20 they're never the daily answer (still guessable).
-const TWINS_FROM="2026-11-20";
-function noTwins(P,cells){return P.filter(t=>!P.some(x=>x!==t&&cells(x,t).every(c=>c[2]==="g")));}
-let _twinCache={};
-function pool(m,day){if(m==="item"){const P=ITEMS.filter(i=>i.depth>=2||i.cost>=1000);if(day&&day<TWINS_FROM)return P;return _twinCache.item||(_twinCache.item=noTwins(P,itemCells));}
-  if(m==="classic"&&!(day&&day<TWINS_FROM))return _twinCache.classic||(_twinCache.classic=noTwins(CH.filter(c=>c.info),classicCells));
+// If a wrong guess matches today's answer on every column, there's no way to tell them apart,
+// so show the answer's picture in grayscale as a tie-breaker.
+function twinHint(t,cells){if(S.done)return "";const tw=S.guesses.find(n=>n!==S.target&&cells(T(n),t).every(c=>c[2]==="g"));
+  return tw?`<div class="twin"><img src="${icon(t)}" alt=""><span>${esc(tw)} matches on every column, but it's not the answer. Here's a clue:</span></div>`:"";}
+function pool(m,day){if(m==="item")return ITEMS.filter(i=>i.depth>=2||i.cost>=1000);
   if(m==="quote")return day&&day<NEWQ?CH.filter(c=>c.info&&c.info.quote):CH.filter(c=>c.quotes&&c.quotes.length);
   return m==="classic"?CH.filter(c=>c.info):m==="emoji"?CH.filter(c=>c.info):CH;}
 const QTYPE={pick:"when picked",ban:"when banned",move:"while moving",attack:"while attacking",taunt:"as a taunt",joke:"as a joke",kill:"after a kill",encounter:"on meeting an enemy",recall:"while recalling",respawn:"on respawning"};
@@ -509,8 +510,8 @@ function clueHtml(t,wrong){
     if(!S.done&&wrong){const ts=new Set(stats(t)),yes=new Set(),no=new Set();for(const n of S.guesses){if(n===S.target)continue;for(const x of stats(IBY[n]))(ts.has(x)?yes:no).add(x);}
       if(yes.size||no.size)h+=`<p class="known">${[...yes].map(x=>`<span class="chip y">✓ ${esc(x)}</span>`).join("")}${[...no].map(x=>`<span class="chip n">✗ ${esc(x)}</span>`).join("")}</p>`;}
     if(!S.done&&wrong>=6&&t.from.length)h+=`<p class="hint" style="margin-top:8px">Hint: builds from ${esc(t.from.join(", "))}</p>`;
-    return h+worthHtml(wrong);}
-  if(mode==="classic")return `<h2>Guess today's champion</h2><p class="hint">Type any champion to begin. Each guess shows how close it is.</p>${worthHtml(wrong)}`;
+    return h+twinHint(t,itemCells)+worthHtml(wrong);}
+  if(mode==="classic")return `<h2>Guess today's champion</h2><p class="hint">Type any champion to begin. Each guess shows how close it is.</p>${twinHint(t,classicCells)}${worthHtml(wrong)}`;
   if(mode==="ability")return `<h2>Which champion has this ability?</h2><div class="clue"><img class="abil${!S.done&&S.gray!==false?" gray":""}" id="abImg" alt="Ability icon" src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=="></div><div class="tgl"><label><input type="checkbox" id="grayT" ${S.gray!==false?"checked":""}${S.done?" disabled":""}> Grayscale</label><label><input type="checkbox" id="rotT" ${S.rot!==false?"checked":""}${S.done?" disabled":""}> Rotated</label></div><p class="hint" style="margin-top:6px">Turning either off costs 20% of your points${(S.helps||[]).length?` · used: ${(S.helps||[]).map(h=>h==="color"?"colour":"upright").join(", ")}`:""}</p>${worthHtml(wrong)}`;
   if(mode==="splash")return `<h2>Which champion is in this splash art?</h2><div class="clue"><div class="splash"><img id="spImg" alt="Part of a splash art"></div></div><p class="hint" style="margin-top:8px">It zooms out a bit with every wrong guess. Find the champion, then name the skin for +20.</p>${worthHtml(wrong)}`;
   if(mode==="quote"){const i=t.info,[q,ty]=quoteOf(t);return `<h2>Which champion says this?</h2><p class="quote">“${esc(q)}”</p>${(S.done||wrong>=2)&&ty&&QTYPE[ty]?`<p class="hint" style="margin-top:10px">${S.done?"Said":"Hint: said"} ${QTYPE[ty]}</p>`:""}${!S.done&&wrong>=4?`<p class="hint" style="margin-top:6px">Hint: from ${esc(i.regions.join(" / "))}</p>`:""}${worthHtml(wrong)}`;}
