@@ -400,7 +400,7 @@ function statLines(desc){
   return out.length?[...new Set(out)]:null;
 }
 function itemType(i){
-  if(i.tags.includes("Boots"))return "Boots";
+  if(i.tags.includes("Boots"))return i.depth>=3?"Tier 3 Boots":"Boots";
   if(/^(Doran's|Dark Seal|Cull|World Atlas|Scorchclaw|Gustwalker|Mosstomper|Tear of the Goddess)/.test(i.name))return "Starter";
   if(/^(Celestial Opposition|Dream Maker|Zaz'Zak's|Solstice Sleigh|Bloodsong)/.test(i.name))return "Support";
   if(i.depth>=3||i.cost>=2500)return "Legendary";
@@ -429,7 +429,12 @@ async function init(){
 // Quote mode switched from one quote per champion to many (quotes.json) on NEWQ; earlier days keep the old pool.
 const NEWQ="2026-11-20";let QUOTES=null;
 async function loadQuotes(){if(QUOTES)return;QUOTES=await (await fetch("quotes.json")).json();for(const c of CH)c.quotes=QUOTES[c.name]||null;}
-function pool(m,day){if(m==="item")return ITEMS.filter(i=>i.depth>=2||i.cost>=1000);
+// Items/champions that match another one on every column can't be told apart, so from Nov 20 they're never the daily answer (still guessable).
+const TWINS_FROM="2026-11-20";
+function noTwins(P,cells){return P.filter(t=>!P.some(x=>x!==t&&cells(x,t).every(c=>c[2]==="g")));}
+let _twinCache={};
+function pool(m,day){if(m==="item"){const P=ITEMS.filter(i=>i.depth>=2||i.cost>=1000);if(day&&day<TWINS_FROM)return P;return _twinCache.item||(_twinCache.item=noTwins(P,itemCells));}
+  if(m==="classic"&&!(day&&day<TWINS_FROM))return _twinCache.classic||(_twinCache.classic=noTwins(CH.filter(c=>c.info),classicCells));
   if(m==="quote")return day&&day<NEWQ?CH.filter(c=>c.info&&c.info.quote):CH.filter(c=>c.quotes&&c.quotes.length);
   return m==="classic"?CH.filter(c=>c.info):m==="emoji"?CH.filter(c=>c.info):CH;}
 const QTYPE={pick:"when picked",ban:"when banned",move:"while moving",attack:"while attacking",taunt:"as a taunt",joke:"as a joke",kill:"after a kill",encounter:"on meeting an enemy",recall:"while recalling",respawn:"on respawning"};
