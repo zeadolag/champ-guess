@@ -93,8 +93,6 @@ nav button .ok{color:var(--green);font-size:13px}
 .chead,.crow{display:grid;grid-template-columns:repeat(8,minmax(74px,1fr));gap:6px;min-width:640px}
 .chead div{font-size:11.5px;color:var(--muted);text-align:center;padding-bottom:4px;border-bottom:1px solid var(--line);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
 .crow{margin-top:6px}
-.twin{display:flex;align-items:center;gap:12px;justify-content:center;margin:12px auto 0;max-width:460px;text-align:left;font-size:13.5px;color:var(--muted)}
-.twin img{width:56px;height:56px;border-radius:10px;filter:grayscale(1) contrast(1.1);border:1px solid var(--line)}
 .rpill{display:inline-block;font-size:11px;font-weight:800;padding:1px 7px;border-radius:999px;color:var(--rc);border:1px solid var(--rc);background:color-mix(in srgb,var(--rc) 14%,transparent);letter-spacing:.02em}
 .elo{margin-top:6px;font-weight:600}.elo .rpill{font-size:13px;padding:2px 9px}.elo b.up{color:#3ccf7d}.elo b.dn{color:#ef6a6a}.elon{display:block;font-size:12px;color:var(--muted);font-weight:500;margin-top:2px}
 .itab .chead,.itab .crow{grid-template-columns:72px 1fr 1fr 2.2fr .8fr 1fr;min-width:560px}
@@ -431,10 +429,8 @@ async function init(){
 // Quote mode switched from one quote per champion to many (quotes.json) on NEWQ; earlier days keep the old pool.
 const NEWQ="2026-11-20";let QUOTES=null;
 async function loadQuotes(){if(QUOTES)return;QUOTES=await (await fetch("quotes.json")).json();for(const c of CH)c.quotes=QUOTES[c.name]||null;}
-// If a wrong guess matches today's answer on every column, there's no way to tell them apart,
-// so show the answer's picture in grayscale as a tie-breaker.
-function twinHint(t,cells){if(S.done)return "";const tw=S.guesses.find(n=>n!==S.target&&cells(T(n),t).every(c=>c[2]==="g"));
-  return tw?`<div class="twin"><img src="${icon(t)}" alt=""><span>${esc(tw)} matches on every column, but it's not the answer. Here's a clue:</span></div>`:"";}
+// A guess that matches the answer on every column can't be told apart from it, so it counts as solved.
+function isTwin(n){if(n===S.target||(mode!=="item"&&mode!=="classic"))return false;const g=T(n),t=T(S.target);if(!g||!t||(mode==="classic"&&(!g.info||!t.info)))return false;return (mode==="item"?itemCells:classicCells)(g,t).every(c=>c[2]==="g");}
 function pool(m,day){if(m==="item")return ITEMS.filter(i=>i.depth>=2||i.cost>=1000);
   if(m==="quote")return day&&day<NEWQ?CH.filter(c=>c.info&&c.info.quote):CH.filter(c=>c.quotes&&c.quotes.length);
   return m==="classic"?CH.filter(c=>c.info):m==="emoji"?CH.filter(c=>c.info):CH;}
@@ -510,8 +506,8 @@ function clueHtml(t,wrong){
     if(!S.done&&wrong){const ts=new Set(stats(t)),yes=new Set(),no=new Set();for(const n of S.guesses){if(n===S.target)continue;for(const x of stats(IBY[n]))(ts.has(x)?yes:no).add(x);}
       if(yes.size||no.size)h+=`<p class="known">${[...yes].map(x=>`<span class="chip y">✓ ${esc(x)}</span>`).join("")}${[...no].map(x=>`<span class="chip n">✗ ${esc(x)}</span>`).join("")}</p>`;}
     if(!S.done&&wrong>=6&&t.from.length)h+=`<p class="hint" style="margin-top:8px">Hint: builds from ${esc(t.from.join(", "))}</p>`;
-    return h+twinHint(t,itemCells)+worthHtml(wrong);}
-  if(mode==="classic")return `<h2>Guess today's champion</h2><p class="hint">Type any champion to begin. Each guess shows how close it is.</p>${twinHint(t,classicCells)}${worthHtml(wrong)}`;
+    return h+worthHtml(wrong);}
+  if(mode==="classic")return `<h2>Guess today's champion</h2><p class="hint">Type any champion to begin. Each guess shows how close it is.</p>${worthHtml(wrong)}`;
   if(mode==="ability")return `<h2>Which champion has this ability?</h2><div class="clue"><img class="abil${!S.done&&S.gray!==false?" gray":""}" id="abImg" alt="Ability icon" src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=="></div><div class="tgl"><label><input type="checkbox" id="grayT" ${S.gray!==false?"checked":""}${S.done?" disabled":""}> Grayscale</label><label><input type="checkbox" id="rotT" ${S.rot!==false?"checked":""}${S.done?" disabled":""}> Rotated</label></div><p class="hint" style="margin-top:6px">Turning either off costs 20% of your points${(S.helps||[]).length?` · used: ${(S.helps||[]).map(h=>h==="color"?"colour":"upright").join(", ")}`:""}</p>${worthHtml(wrong)}`;
   if(mode==="splash")return `<h2>Which champion is in this splash art?</h2><div class="clue"><div class="splash"><img id="spImg" alt="Part of a splash art"></div></div><p class="hint" style="margin-top:8px">It zooms out a bit with every wrong guess. Find the champion, then name the skin for +20.</p>${worthHtml(wrong)}`;
   if(mode==="quote"){const i=t.info,[q,ty]=quoteOf(t);return `<h2>Which champion says this?</h2><p class="quote">“${esc(q)}”</p>${(S.done||wrong>=2)&&ty&&QTYPE[ty]?`<p class="hint" style="margin-top:10px">${S.done?"Said":"Hint: said"} ${QTYPE[ty]}</p>`:""}${!S.done&&wrong>=4?`<p class="hint" style="margin-top:6px">Hint: from ${esc(i.regions.join(" / "))}</p>`:""}${worthHtml(wrong)}`;}
@@ -529,7 +525,7 @@ function guessesHtml(t){
 }
 function winHtml(t){
   const n=S.guesses.length;
-  return `<div class="card win"><img class="big" src="${icon(t)}" alt=""><h2>${esc(t.name)}</h2><p class="wsub">${S.extra&&(!HASBONUS(mode)||S.bonus!=null)?esc(S.extra)+" · ":""}Found in ${n} guess${n===1?"":"es"}</p>${mode==="ability"?bonusHtml():mode==="splash"?`<div id="skB"></div>`:""}<p class="pts">+${total()} points${HASBONUS(mode)&&S.bonus===1?" (incl. +20 bonus)":""}${S.random?" (random rounds don't count)":""}</p>${S.elo?(()=>{const a=rankOf(S.elo.after),b=rankOf(S.elo.before),d=Math.round(S.elo.delta*4);if(S.elo.provisional)return `<p class="elo">${rankPill(S.elo.before)} <b class="${d>=0?"up":"dn"}">≈ ${d>=0?"+":""}${d} LP</b><small class="elon">if the day ended now · final LP after midnight, once everyone has played</small></p>`;
+  return `<div class="card win"><img class="big" src="${icon(t)}" alt=""><h2>${esc(t.name)}</h2><p class="wsub">${S.extra&&(!HASBONUS(mode)||S.bonus!=null)?esc(S.extra)+" · ":""}Found in ${n} guess${n===1?"":"es"}</p>${S.guesses[n-1]!==S.target?`<p class="hint">You guessed <b>${esc(S.guesses[n-1])}</b>, which matches on every column, so it counts!</p>`:""}${mode==="ability"?bonusHtml():mode==="splash"?`<div id="skB"></div>`:""}<p class="pts">+${total()} points${HASBONUS(mode)&&S.bonus===1?" (incl. +20 bonus)":""}${S.random?" (random rounds don't count)":""}</p>${S.elo?(()=>{const a=rankOf(S.elo.after),b=rankOf(S.elo.before),d=Math.round(S.elo.delta*4);if(S.elo.provisional)return `<p class="elo">${rankPill(S.elo.before)} <b class="${d>=0?"up":"dn"}">≈ ${d>=0?"+":""}${d} LP</b><small class="elon">if the day ended now · final LP after midnight, once everyone has played</small></p>`;
   return `<p class="elo">${rankPill(S.elo.after)} ${a.lp} LP <b class="${d>=0?"up":"dn"}">${d>=0?"+":""}${d} LP</b>${a.name!==b.name?` · ${S.elo.after>S.elo.before?"Promoted":"Demoted"} from ${esc(b.name)}`:""}</p>`;})():""}
   <div class="btns"><button class="btn pri" id="shareB" type="button">Copy result</button><button class="btn" id="randB" type="button">Play a random one</button>${nextMode()?`<button class="btn" id="nextB" type="button">Next: ${nextMode()[1]}</button>`:""}</div><textarea class="share" id="shareT" rows="5" readonly aria-label="Result to share"></textarea></div>`;
 }
@@ -631,7 +627,7 @@ function bindInput(){
 }
 function guess(name){
   if(S.done||S.guesses.includes(name))return;
-  S.guesses.push(name);if(name===S.target){S.done=true;if(!S.random)S.finished=Date.now();}
+  S.guesses.push(name);if(name===S.target||isTwin(name)){S.done=true;if(!S.random)S.finished=Date.now();}
   save(skey(),S);renderNav();render();
   if(!S.random){pushProgress();setTimeout(refreshSocial,400);}
   if(!S.done&&matchMedia("(hover:hover)").matches){const i=$("gIn");if(i)i.focus();}
