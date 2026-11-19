@@ -426,17 +426,24 @@ async function init(){
   if(!MODES.some(m=>m[0]===mode))mode="classic";
   start();
 }
-function pool(m){if(m==="item")return ITEMS.filter(i=>i.depth>=2||i.cost>=1000);return m==="classic"?CH.filter(c=>c.info):m==="quote"?CH.filter(c=>c.info&&c.info.quote):m==="emoji"?CH.filter(c=>c.info):CH;}
+// Quote mode switched from one quote per champion to many (quotes.json) on NEWQ; earlier days keep the old pool.
+const NEWQ="2026-11-20";let QUOTES=null;
+async function loadQuotes(){if(QUOTES)return;QUOTES=await (await fetch("quotes.json")).json();for(const c of CH)c.quotes=QUOTES[c.name]||null;}
+function pool(m,day){if(m==="item")return ITEMS.filter(i=>i.depth>=2||i.cost>=1000);
+  if(m==="quote")return day&&day<NEWQ?CH.filter(c=>c.info&&c.info.quote):CH.filter(c=>c.quotes&&c.quotes.length);
+  return m==="classic"?CH.filter(c=>c.info):m==="emoji"?CH.filter(c=>c.info):CH;}
+const QTYPE={pick:"when picked",ban:"when banned",move:"while moving",attack:"while attacking",taunt:"as a taunt",joke:"as a joke",kill:"after a kill",encounter:"on meeting an enemy",recall:"while recalling",respawn:"on respawning"};
+function quoteOf(t){if(!S.random&&S.day<NEWQ&&t.info&&t.info.quote)return [t.info.quote,null];const L=t.quotes&&t.quotes.length?t.quotes:[[t.info.quote,null]];return L[Math.floor(S.r[0]*L.length)];}
 // Daily pick: replays every day from a fixed start date, never choosing anything picked in the
 // previous 10 days. Same result for everyone, since it only depends on the mode and the date.
 const EPOCH="2026-11-18",NOREPEAT=10,PICKS={},LATE={Locke:"2026-11-19",Zaahen:"2026-11-19"};
 function dailyPick(m,day){
   const key=m+"|"+day;if(PICKS[key])return PICKS[key];
-  const P=pool(m),recent=[];let d=EPOCH,res=null;
+  const recent=[];let d=EPOCH,res=null;
   if(day<EPOCH)return pick(m,day);
   for(let i=0;i<4000;i++){
     // Champions added to the list later only join the daily pool from that day on, so earlier days stay the same.
-    const Pd=P.filter(x=>!(LATE[x.name]&&d<LATE[x.name]));
+    const P=pool(m,d),Pd=P.filter(x=>!(LATE[x.name]&&d<LATE[x.name]));
     const r=rng(hash(m+"|"+d)),c=Pd.filter(x=>!recent.includes(x.name)),list=c.length?c:Pd;
     res={target:list[Math.floor(r()*list.length)].name,r1:r(),r2:r(),r3:r()};
     recent.push(res.target);if(recent.length>NOREPEAT)recent.shift();
@@ -448,6 +455,7 @@ function dailyPick(m,day){
 function pick(m,seedStr){const P=pool(m);const r=rng(hash(m+"|"+seedStr));return {target:P[Math.floor(r()*P.length)].name,r1:r(),r2:r(),r3:r()};}
 const skey=()=>(S&&S.random?"cg-r-":"cg-")+mode;
 function start(){
+  if(mode==="quote"&&!QUOTES){$("game").innerHTML=`<p class="msg">Loading quotes…</p>`;renderNav();loadQuotes().then(start).catch(()=>{QUOTES={};start();});return;}
   if(mode==="item"&&!ITEMS){$("game").innerHTML=`<p class="msg">Loading items…</p>`;renderNav();loadItems().then(start).catch(()=>{$("game").innerHTML=`<p class="msg">Couldn't load the item list from Riot. Reload to try again.</p>`;});return;}
   const key="cg-"+mode;let st=load(key);
   if(!st||st.random||st.day!==today()||!T(st.target)){const p=dailyPick(mode,today());st={day:today(),random:false,target:p.target,r:[p.r1,p.r2,p.r3],guesses:[],done:false,started:Date.now()};save(key,st);}
@@ -500,7 +508,7 @@ function clueHtml(t,wrong){
   if(mode==="classic")return `<h2>Guess today's champion</h2><p class="hint">Type any champion to begin. Each guess shows how close it is.</p>${worthHtml(wrong)}`;
   if(mode==="ability")return `<h2>Which champion has this ability?</h2><div class="clue"><img class="abil${!S.done&&S.gray!==false?" gray":""}" id="abImg" alt="Ability icon" src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=="></div><div class="tgl"><label><input type="checkbox" id="grayT" ${S.gray!==false?"checked":""}${S.done?" disabled":""}> Grayscale</label><label><input type="checkbox" id="rotT" ${S.rot!==false?"checked":""}${S.done?" disabled":""}> Rotated</label></div><p class="hint" style="margin-top:6px">Turning either off costs 20% of your points${(S.helps||[]).length?` · used: ${(S.helps||[]).map(h=>h==="color"?"colour":"upright").join(", ")}`:""}</p>${worthHtml(wrong)}`;
   if(mode==="splash")return `<h2>Which champion is in this splash art?</h2><div class="clue"><div class="splash"><img id="spImg" alt="Part of a splash art"></div></div><p class="hint" style="margin-top:8px">It zooms out a bit with every wrong guess. Find the champion, then name the skin for +20.</p>${worthHtml(wrong)}`;
-  if(mode==="quote"){const i=t.info;return `<h2>Which champion says this?</h2><p class="quote">“${esc(i.quote)}”</p>${!S.done&&wrong>=4?`<p class="hint" style="margin-top:10px">Hint: from ${esc(i.regions.join(" / "))}</p>`:""}${worthHtml(wrong)}`;}
+  if(mode==="quote"){const i=t.info,[q,ty]=quoteOf(t);return `<h2>Which champion says this?</h2><p class="quote">“${esc(q)}”</p>${(S.done||wrong>=2)&&ty&&QTYPE[ty]?`<p class="hint" style="margin-top:10px">${S.done?"Said":"Hint: said"} ${QTYPE[ty]}</p>`:""}${!S.done&&wrong>=4?`<p class="hint" style="margin-top:6px">Hint: from ${esc(i.regions.join(" / "))}</p>`:""}${worthHtml(wrong)}`;}
   if(mode==="emoji"){const E=t.info.emojis,show=S.done?E.length:Math.min(E.length,1+wrong);return `<h2>Which champion do these emojis describe?</h2><div class="emojis">${E.map((e,i)=>i<show?`<span>${emo(e)}</span>`:`<span class="hid">?</span>`).join("")}</div><p class="hint" style="margin-top:8px">A new emoji appears after each wrong guess.</p>${worthHtml(wrong)}`;}
   return "";
 }
