@@ -93,6 +93,15 @@ nav button .ok{color:var(--green);font-size:13px}
 .chead,.crow{display:grid;grid-template-columns:repeat(8,minmax(74px,1fr));gap:6px;min-width:640px}
 .chead div{font-size:11.5px;color:var(--muted);text-align:center;padding-bottom:4px;border-bottom:1px solid var(--line);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
 .crow{margin-top:6px}
+.vsb[aria-pressed="true"],.vsb:hover{border-color:#e05252}
+.vsl h3{margin:0 0 8px}.btn.sm{padding:6px 12px;font-size:13px;margin-left:auto}
+.vsbar{padding:12px 14px}.vsr{display:flex;align-items:center;gap:10px;justify-content:space-between}
+.vsp{display:flex;align-items:center;gap:8px;min-width:0;flex:1}.vsp:last-child{flex-direction:row-reverse;text-align:right}
+.vsp img{width:36px;height:36px;border-radius:50%}.vsp b{display:block;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.vsp small{color:var(--muted);font-size:12px}
+.vsmid{text-align:center;display:flex;flex-direction:column;align-items:center}.vsmid small{color:var(--muted);font-size:12px}.vst{font-size:20px;font-weight:800;color:var(--gold);font-variant-numeric:tabular-nums}
+.vstrack{height:5px;background:var(--line);border-radius:3px;margin-top:10px;overflow:hidden}.vstrack i{display:block;height:100%;background:linear-gradient(90deg,#e05252,var(--gold));transition:width 1s linear}
+.vscd{text-align:center}.vscd .cd{font-size:64px;font-weight:900;color:var(--gold);margin:6px 0}
+.vsres{text-align:center}.vsscore{font-size:30px;margin:4px 0}.vst2{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px}.vst2 td,.vst2 th{padding:7px 6px;border-bottom:1px solid var(--line)}.vst2 td:first-child{text-align:left}.vst2 small{color:var(--muted);margin-left:4px}.vst2 .x{color:var(--muted)}
 .notes{margin:4px 0 8px}.nbtn{display:flex;align-items:center;gap:8px;width:100%;background:var(--panel);border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:9px 12px;font:inherit;font-weight:700;cursor:pointer}
 .nbtn span{color:var(--muted);font-weight:600;font-size:13px}.nbtn b{margin-left:auto;color:var(--muted);font-size:11px}
 .npanel{border:1px solid var(--line);border-top:0;border-radius:0 0 10px 10px;padding:10px;background:var(--panel);margin-top:-6px}
@@ -469,7 +478,7 @@ function dailyPick(m,day){
   return PICKS[key]=res;
 }
 function pick(m,seedStr){const P=pool(m);const r=rng(hash(m+"|"+seedStr));return {target:P[Math.floor(r()*P.length)].name,r1:r(),r2:r(),r3:r()};}
-const skey=()=>(S&&S.random?"cg-r-":"cg-")+mode;
+const skey=()=>S&&S.vs?"cg-vs-round":(S&&S.random?"cg-r-":"cg-")+mode;
 function start(){
   if(mode==="quote"&&!QUOTES){$("game").innerHTML=`<p class="msg">Loading quotes…</p>`;renderNav();loadQuotes().then(start).catch(()=>{QUOTES={};start();});return;}
   if(mode==="item"&&!ITEMS){$("game").innerHTML=`<p class="msg">Loading items…</p>`;renderNav();loadItems().then(start).catch(()=>{$("game").innerHTML=`<p class="msg">Couldn't load the item list from Riot. Reload to try again.</p>`;});return;}
@@ -480,8 +489,8 @@ function start(){
 }
 function randomRound(){const seed=String(Math.random());const p=pick(mode,seed);S={day:today(),random:true,target:p.target,r:[p.r1,p.r2,p.r3],guesses:[],done:false};save(skey(),S);render();}
 function dailyDone(m){const st=load("cg-"+m);return st&&st.day===today()&&!st.random&&st.done;}
-function renderNav(){$("modes").innerHTML=MODES.map(([k,l,e])=>`<button type="button" data-mode="${k}" aria-pressed="${mode===k}">${emo(e)} ${l}${dailyDone(k)?' <span class="ok">✓</span>':""}</button>`).join("");}
-$("modes").addEventListener("click",e=>{const b=e.target.closest("[data-mode]");if(!b)return;mode=b.dataset.mode;start();});
+function renderNav(){$("modes").innerHTML=MODES.map(([k,l,e])=>`<button type="button" data-mode="${k}" aria-pressed="${!VS&&mode===k}">${emo(e)} ${l}${dailyDone(k)?' <span class="ok">✓</span>':""}</button>`).join("")+`<button type="button" data-vsb aria-pressed="${!!VS}" class="vsb">${emo("⚔️")} VS</button>`;}
+$("modes").addEventListener("click",e=>{const v=e.target.closest("[data-vsb]");if(v){if(!VS)vsLobby();return;}const b=e.target.closest("[data-mode]");if(!b)return;if(VS)vsExit();mode=b.dataset.mode;start();});
 
 async function detail(c){if(DETAIL[c.id])return DETAIL[c.id];const j=await (await fetch(`${DD}/cdn/${V}/data/en_US/champion/${c.id}.json`)).json();return DETAIL[c.id]=j.data[c.id];}
 
@@ -498,14 +507,15 @@ function classicCells(g,t){const G=g.info,T=t.info;return [
 
 // ---------- rendering ----------
 function render(){
+  if(S&&S.vs&&vsNow()<VS.st.match.round_started){$("game").innerHTML=vsBarHtml()+vsCountdownHtml();return;}
   const t=T(S.target),wrong=S.guesses.filter(n=>n!==S.target).length;
-  let h=`<div class="card">${clueHtml(t,wrong)}</div>`;
+  let h=(S.vs?vsBarHtml():"")+`<div class="card">${clueHtml(t,wrong)}</div>`;
   if(S.done)h+=winHtml(t);
   else h+=`<div class="inrow"><input id="gIn" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="${mode==="item"?"Type an item name…":"Type a champion name…"}" aria-label="${mode==="item"?"Item":"Champion"} name"><button id="gBtn" type="button" disabled>Guess</button><div class="sugg" id="sugg" role="listbox"></div></div>${notesHtml()}`;
   if(S.guesses.length)h+=`<p class="count">${S.guesses.length} guess${S.guesses.length===1?"":"es"}${S.random?" · random round":""}</p>`;
   h+=guessesHtml(t);
   $("game").innerHTML=h;
-  $("sub").textContent=S.random?`Random round: not today's ${mode==="item"?"item":"champion"}`:mode==="item"?"Guess today's League of Legends item":"Guess today's League of Legends champion";
+  $("sub").textContent=S.vs?"VS match":S.random?`Random round: not today's ${mode==="item"?"item":"champion"}`:mode==="item"?"Guess today's League of Legends item":"Guess today's League of Legends champion";
   if(!S.done){bindInput();bindNotes();}
   afterRender(t,wrong);
 }
@@ -538,6 +548,7 @@ function guessesHtml(t){
   return `<div class="glist">${list.map(n=>`<div class="gitem ${n===S.target?"g":"x"}"><img src="${icon(BY[n])}" alt="">${esc(n)}</div>`).join("")}</div>`;
 }
 function winHtml(t){
+  if(S.vs)return vsRoundEndHtml(t);
   const n=S.guesses.length;
   return `<div class="card win"><img class="big" src="${icon(t)}" alt=""><h2>${esc(t.name)}</h2><p class="wsub">${S.extra&&(!HASBONUS(mode)||S.bonus!=null)?esc(S.extra)+" · ":""}Found in ${n} guess${n===1?"":"es"}</p>${S.guesses[n-1]!==S.target?`<p class="hint">You guessed <b>${esc(S.guesses[n-1])}</b>, which matches on every column, so it counts!</p>`:""}${mode==="ability"?bonusHtml():mode==="splash"?`<div id="skB"></div>`:""}<p class="pts">+${total()} points${HASBONUS(mode)&&S.bonus===1?" (incl. +20 bonus)":""}${S.random?" (random rounds don't count)":""}</p>${S.elo?(()=>{const a=rankOf(S.elo.after),b=rankOf(S.elo.before),d=Math.round(S.elo.delta*4);if(S.elo.provisional)return `<p class="elo">${rankPill(S.elo.before)} <b class="${d>=0?"up":"dn"}">≈ ${d>=0?"+":""}${d} LP</b><small class="elon">if the day ended now · final LP after midnight, once everyone has played</small></p>`;
   return `<p class="elo">${rankPill(S.elo.after)} ${a.lp} LP <b class="${d>=0?"up":"dn"}">${d>=0?"+":""}${d} LP</b>${a.name!==b.name?` · ${S.elo.after>S.elo.before?"Promoted":"Demoted"} from ${esc(b.name)}`:""}</p>`;})():""}
@@ -607,7 +618,7 @@ async function afterRender(t,wrong){
     }
     if(S.done&&S.bonus!=null){const p=document.querySelector(".win .wsub");if(p)p.textContent=`${S.extra} · Found in ${S.guesses.length} guess${S.guesses.length===1?"":"es"}`;}
   }
-  if(S.done){
+  if(S.done&&!S.vs){
     $("shareB").onclick=share;$("randB").onclick=randomRound;const nb=$("nextB");if(nb)nb.onclick=()=>{mode=nextMode()[0];start();};
   }
 }
@@ -623,6 +634,85 @@ async function share(){
   const txt=shareText(),ta=$("shareT");
   try{await navigator.clipboard.writeText(txt);$("shareB").textContent="Copied!";}
   catch(_){ta.style.display="block";ta.value=txt;ta.select();$("shareB").textContent="Copy the text below";}
+}
+
+// ---------- VS mode: live 1v1, one random puzzle per mode, 90s per round ----------
+let VS=null;
+const vsNow=()=>Date.now()+(VS?VS.off:0);
+const MODE_INFO=m=>MODES.find(x=>x[0]===m);
+function vsExit(){if(!VS)return;clearInterval(VS.poll);if(VS.id&&VS.st&&VS.st.match.status==="waiting"&&ME&&VS.st.match.host===ME.id)api("/vs/leave",{method:"POST",body:JSON.stringify({id:VS.id})}).catch(()=>{});VS=null;S=null;}
+function vsLobby(){
+  if(VS)vsExit();VS={id:null,st:null,poll:null,rk:null,off:0,shown:null};renderSocial();renderNav();$("sub").textContent="VS: race a friend through every mode";
+  if(!SESSION){$("game").innerHTML=`<div class="card"><h2>⚔️ VS</h2><p class="hint">VS needs Discord sign-in. Open Leagledle from the Apps button in a Discord channel to play.</p></div>`;return;}
+  $("game").innerHTML=`<div class="card vsl"><h2>⚔️ VS</h2><p class="hint">Race a friend through one random puzzle in every mode: ${MODES.map(m=>emo(m[2])).join(" ")}<br>90 seconds per round. Fewer guesses and a faster solve = more points. Highest total wins and gains VS Elo.</p>
+    <div class="btns"><button class="btn pri" id="vsNew" type="button">Create match</button></div><div id="vsOpenL"></div></div>
+    <div class="card vsl"><h3>VS ladder</h3><div id="vsBoardL"><p class="hint">Loading…</p></div></div>`;
+  $("vsNew").onclick=async()=>{const r=await api("/vs/create",{method:"POST",body:JSON.stringify({channel:CTX.channel,guild:CTX.guild})});if(r.id)vsEnter(r.id);};
+  const lobby=async()=>{if(!VS||VS.id)return;
+    const o=await api(`/vs/open?channel=${CTX.channel||""}`).catch(()=>({rows:[]}));const el=$("vsOpenL");if(!el||!VS||VS.id)return;
+    const rows=(o.rows||[]).filter(r=>!ME||r.uid!==ME.id);
+    el.innerHTML=rows.length?`<p class="hint" style="margin-top:14px">Open matches in this channel:</p>`+rows.map(r=>`<div class="srow"><img src="${avatar({id:r.uid,avatar:r.avatar})}" alt=""><span class="nm">${esc(r.name)}</span><button class="btn pri sm" data-vsj="${esc(r.id)}" type="button">Join</button></div>`).join(""):`<p class="hint" style="margin-top:14px">No open matches here yet. Create one and invite a friend.</p>`;
+    el.querySelectorAll("[data-vsj]").forEach(b=>b.onclick=async()=>{const r=await api("/vs/join",{method:"POST",body:JSON.stringify({id:b.dataset.vsj})});if(r.ok)vsEnter(b.dataset.vsj);else alertMsg(r.error||"Couldn't join");});};
+  lobby();VS.poll=setInterval(lobby,3000);
+  api(`/vs/board?id=${CTX.guild||CTX.channel||""}`).then(b=>{const el=$("vsBoardL");if(!el)return;el.innerHTML=(b.rows||[]).length?b.rows.map((u,i)=>`<div class="srow${ME&&u.id===ME.id?" me":""}"><span class="rk">${i+1}</span><img src="${avatar(u)}" alt=""><span class="nm">${esc(u.name)}<small>${rankPill(u.elo)} ${rankOf(u.elo).lp} LP</small></span><span class="tm">${u.wins}W ${u.losses}L${u.draws?` ${u.draws}D`:""}</span></div>`).join(""):`<p class="hint">No VS matches played here yet. Everyone starts in Gold II.</p>`;}).catch(()=>{});
+}
+function vsSend(){const id=VS&&VS.id,round=VS&&VS.st&&VS.st.match.round;if(!id)return;api("/vs/progress",{method:"POST",body:JSON.stringify({id,round,guesses:S.guesses.length,done:S.done})}).then(()=>vsUpdate()).catch(()=>{});}
+function alertMsg(t){const el=$("vsOpenL");if(el)el.insertAdjacentHTML("afterbegin",`<p class="hint" style="color:#ef6a6a">${esc(t)}</p>`);}
+function vsEnter(id){clearInterval(VS.poll);VS.id=id;VS.rk=null;VS.shown=null;vsUpdate();VS.poll=setInterval(vsUpdate,1000);}
+async function vsUpdate(){
+  if(!VS||!VS.id)return;
+  let r;try{r=await api(`/vs/state?id=${VS.id}`);}catch(_){return;}
+  if(!VS||!r.match)return;VS.st=r;VS.off=r.now-Date.now();const m=r.match;
+  if(m.status==="waiting"){if(VS.shown!=="wait"){VS.shown="wait";vsWaitScreen();}return;}
+  if(m.status==="cancelled"){clearInterval(VS.poll);$("game").innerHTML=`<div class="card"><h2>Match cancelled</h2><p class="hint">Nobody joined in time.</p><div class="btns"><button class="btn pri" id="vsBack" type="button">Back to VS</button></div></div>`;$("vsBack").onclick=vsLobby;return;}
+  if(m.status==="done"){if(VS.shown!=="done"){VS.shown="done";clearInterval(VS.poll);vsResults();}return;}
+  // playing
+  const rk=m.id+"|"+m.round;
+  if(VS.rk!==rk){
+    VS.rk=rk;VS.started=false;
+    await Promise.all([ITEMS?null:loadItems(),QUOTES?null:loadQuotes()]).catch(()=>{});
+    mode=r.rounds[m.round];const p=pick(mode,"vs|"+m.seed+"|"+m.round);
+    S={vs:true,random:true,day:today(),target:p.target,r:[p.r1,p.r2,p.r3],guesses:[],done:false};renderNav();render();return;
+  }
+  const now=vsNow();
+  if(!VS.started&&now>=m.round_started){VS.started=true;render();return;}
+  if(VS.started&&!S.done&&now>=m.round_started+r.dur){S.done=true;S.timeout=true;render();return;}
+  const bar=$("vsBar");if(bar)bar.outerHTML=vsBarHtml();
+  const we=$("vsWait");if(we)we.innerHTML=vsWaitText();
+  const cd=$("vsCd");if(cd)cd.textContent=Math.max(1,Math.ceil((m.round_started-now)/1000));
+}
+function vsWaitScreen(){
+  $("game").innerHTML=`<div class="card vsl"><h2>⚔️ Waiting for an opponent…</h2><p class="hint">Your friend opens Leagledle in this channel, taps <b>VS</b> and joins your match. It starts as soon as they join.</p>
+    <div class="btns">${SDK?`<button class="btn pri" id="vsInv" type="button">Invite a friend</button>`:""}<button class="btn" id="vsCancel" type="button">Cancel</button></div></div>`;
+  const iv=$("vsInv");if(iv)iv.onclick=async()=>{try{if(!AUTHED)await discordLogin(location.hostname.split(".")[0]);await SDK.commands.openInviteDialog();}catch(_){}};
+  $("vsCancel").onclick=()=>{vsExit();vsLobby();};
+}
+function vsPlayers(){const st=VS.st,m=st.match,me=ME&&(m.host===ME.id||m.guest===ME.id)?ME.id:m.host,op=me===m.host?m.guest:m.host;const U=id=>st.users.find(u=>u.id===id)||{id,name:"Opponent",avatar:null};return [U(me),U(op)];}
+function vsRow(uid,round){return VS.st.progress.find(p=>p.user_id===uid&&p.round===round);}
+function vsTotal(uid){return VS.st.progress.filter(p=>p.user_id===uid).reduce((a,p)=>a+p.points,0);}
+function vsBarHtml(){
+  const st=VS.st,m=st.match,now=vsNow(),left=Math.max(0,m.round_started+st.dur-now),pct=now<m.round_started?100:left/st.dur*100;
+  const [me,op]=vsPlayers();const mi=MODE_INFO(st.rounds[m.round]);
+  const pl=u=>{const p=vsRow(u.id,m.round);return `<div class="vsp"><img src="${avatar(u)}" alt=""><div><b>${esc(u.name)}</b><small>${vsTotal(u.id)} pts · ${p?(p.done?`✓ solved in ${p.guesses}`:`${p.guesses} guess${p.guesses===1?"":"es"}`):"…"}</small></div></div>`;};
+  return `<div class="card vsbar" id="vsBar"><div class="vsr">${pl(me)}<div class="vsmid"><b>Round ${m.round+1}/${st.rounds.length}</b><small>${emo(mi[2])} ${mi[1]}</small><span class="vst">${now<m.round_started?"Get ready":Math.ceil(left/1000)+"s"}</span></div>${pl(op)}</div><div class="vstrack"><i style="width:${pct}%"></i></div></div>`;
+}
+function vsCountdownHtml(){const st=VS.st,m=st.match,mi=MODE_INFO(st.rounds[m.round]);return `<div class="card vscd"><p class="hint">Next up</p><h2>${emo(mi[2])} ${mi[1]}</h2><p class="cd" id="vsCd">${Math.max(1,Math.ceil((m.round_started-vsNow())/1000))}</p></div>`;}
+function vsWaitText(){const [,op]=vsPlayers(),p=vsRow(op.id,VS.st.match.round);return p&&p.done?"Both done! Next round in a moment…":`Waiting for ${esc(op.name)}… (round ends when time runs out)`;}
+function vsRoundEndHtml(t){
+  const me=vsPlayers()[0],p=vsRow(me.id,VS.st.match.round);
+  return `<div class="card win"><img class="big" src="${icon(t)}" alt=""><h2>${esc(t.name)}</h2>${S.timeout?`<p class="wsub">Time's up!</p>`:`<p class="wsub">Solved in ${S.guesses.length} guess${S.guesses.length===1?"":"es"}</p><p class="pts">+${p&&p.done?p.points:"…"} points</p>`}<p class="hint" id="vsWait">${vsWaitText()}</p></div>`;
+}
+function vsResults(){
+  const st=VS.st,m=st.match,[me,op]=vsPlayers(),a=vsTotal(me.id),b=vsTotal(op.id);
+  const myDelta=me.id===m.host?m.host_delta:m.guest_delta,rt=(st.ratings.find(x=>x.user_id===me.id)||{}).elo;
+  const head=a>b?"🏆 You win!":a<b?`${esc(op.name)} wins`:"It's a draw";
+  const cell=(u,i)=>{const p=vsRow(u.id,i);return p&&p.done?`<b>${p.points}</b><small>${p.guesses}g</small>`:`<span class="x">–</span>`;};
+  $("game").innerHTML=`<div class="card vsres"><h2>${head}</h2><p class="vsscore"><b>${a}</b> : <b>${b}</b></p>
+    ${myDelta!=null&&rt!=null?`<p class="elo">${rankPill(rt)} ${rankOf(rt).lp} LP <b class="${myDelta>=0?"up":"dn"}">${myDelta>=0?"+":""}${Math.round(myDelta*4)} LP</b></p>`:""}
+    <table class="vst2"><tr><th></th><th>${esc(me.name)}</th><th>${esc(op.name)}</th></tr>${st.rounds.map((r,i)=>`<tr><td>${emo(MODE_INFO(r)[2])} ${MODE_INFO(r)[1]}</td><td>${cell(me,i)}</td><td>${cell(op,i)}</td></tr>`).join("")}</table>
+    <div class="btns"><button class="btn pri" id="vsAgain" type="button">New match</button><button class="btn" id="vsBack" type="button">Back to VS</button></div></div>`;
+  $("vsAgain").onclick=async()=>{const r=await api("/vs/create",{method:"POST",body:JSON.stringify({channel:CTX.channel,guild:CTX.guild})});if(r.id){VS.st=null;vsEnter(r.id);}};
+  $("vsBack").onclick=vsLobby;
 }
 
 // ---------- notes: mark candidates as ruled out (✗) or maybe (★) ----------
@@ -674,7 +764,8 @@ function guess(name){
   if(S.done||S.guesses.includes(name))return;
   S.guesses.push(name);if(name===S.target||isTwin(name)){S.done=true;if(!S.random)S.finished=Date.now();}
   save(skey(),S);renderNav();render();
-  if(!S.random){pushProgress();setTimeout(refreshSocial,400);}
+  if(S.vs)vsSend();
+  else if(!S.random){pushProgress();setTimeout(refreshSocial,400);}
   if(!S.done&&matchMedia("(hover:hover)").matches){const i=$("gIn");if(i)i.focus();}
   if(S.done)window.scrollTo({top:0,behavior:"smooth"});
 }
@@ -726,7 +817,7 @@ function recapHtml(rc){
   return h;
 }
 function renderSocial(){
-  const el=$("social");if(!IN_DISCORD){el.hidden=true;return;}
+  const el=$("social");if(!IN_DISCORD||VS){el.hidden=true;el.parentElement.classList.remove("has");return;}
   el.hidden=false;el.parentElement.classList.add("has");
   const lbl=MODES.find(m=>m[0]===mode)[1];
   const rc=SOC.recap,stk=rc?`<span class="streak${rc.today?" on":""}" title="Days in a row someone here finished a puzzle${rc.best?` (best: ${rc.best})`:""}">${emo("🔥")} ${rc.streak} day${rc.streak===1?"":"s"}</span>`:"";

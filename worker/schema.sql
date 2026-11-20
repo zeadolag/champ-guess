@@ -52,3 +52,37 @@ CREATE TABLE IF NOT EXISTS elo_log (
   created_at INTEGER NOT NULL,
   PRIMARY KEY (user_id, scope_id, mode, day)
 );
+CREATE TABLE IF NOT EXISTS vs_matches (
+  id TEXT PRIMARY KEY,
+  host TEXT NOT NULL,
+  guest TEXT,
+  channel_id TEXT,
+  guild_id TEXT,
+  seed INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  round INTEGER NOT NULL DEFAULT 0,
+  round_started INTEGER,
+  created_at INTEGER NOT NULL,
+  host_delta REAL,
+  guest_delta REAL
+);
+CREATE INDEX IF NOT EXISTS vs_open ON vs_matches (channel_id, status, created_at);
+CREATE TABLE IF NOT EXISTS vs_progress (
+  match_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  round INTEGER NOT NULL,
+  guesses INTEGER NOT NULL DEFAULT 0,
+  done INTEGER NOT NULL DEFAULT 0,
+  finished_at INTEGER,
+  points INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (match_id, user_id, round)
+);
+CREATE TABLE IF NOT EXISTS vs_ratings (
+  scope_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  elo REAL NOT NULL,
+  wins INTEGER NOT NULL DEFAULT 0,
+  losses INTEGER NOT NULL DEFAULT 0,
+  draws INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (scope_id, user_id)
+);
