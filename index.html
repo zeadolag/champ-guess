@@ -719,7 +719,7 @@ function vsResults(){
 // Tap an icon to cycle: nothing → ✗ ruled out → ★ maybe → nothing. Saved with the puzzle. No automatic filtering.
 let NOTES_OPEN=(()=>{try{return localStorage.getItem("cg-notes-open")==="1";}catch(_){return false;}})(),NOTES_VIEW="all";
 // Each mode's notes grid shows only things that can be that mode's answer, with sort options that fit the mode.
-const NOTES_SORTS={classic:[["az","A–Z"],["year","Year"],["region","Region"],["pos","Role"]],item:[["price","Price"],["type","Type"],["az","A–Z"]]};
+const NOTES_SORTS={classic:[["az","A–Z"],["pos","Role"]],item:[["az","A–Z"],["type","Type"]]};
 let NOTES_SORT=(()=>{try{return JSON.parse(localStorage.getItem("cg-notes-sort")||"{}");}catch(_){return {};}})();
 const notesSortKey=()=>{const o=NOTES_SORTS[mode];return o?(o.find(x=>x[0]===NOTES_SORT[mode])||o[0])[0]:"az";};
 function notesGroups(){
