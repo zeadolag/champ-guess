@@ -93,6 +93,20 @@ nav button .ok{color:var(--green);font-size:13px}
 .chead,.crow{display:grid;grid-template-columns:repeat(8,minmax(74px,1fr));gap:6px;min-width:640px}
 .chead div{font-size:11.5px;color:var(--muted);text-align:center;padding-bottom:4px;border-bottom:1px solid var(--line);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
 .crow{margin-top:6px}
+.notes{margin:4px 0 8px}.nbtn{display:flex;align-items:center;gap:8px;width:100%;background:var(--panel);border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:9px 12px;font:inherit;font-weight:700;cursor:pointer}
+.nbtn span{color:var(--muted);font-weight:600;font-size:13px}.nbtn b{margin-left:auto;color:var(--muted);font-size:11px}
+.npanel{border:1px solid var(--line);border-top:0;border-radius:0 0 10px 10px;padding:10px;background:var(--panel);margin-top:-6px}
+.nbar{display:flex;gap:8px;flex-wrap:wrap}.nbar input{flex:1;min-width:120px;background:var(--bg);border:1px solid var(--line);border-radius:8px;color:var(--ink);padding:7px 10px;font:inherit}
+.nviews{display:flex;gap:4px}.nviews button{background:transparent;border:1px solid var(--line);color:var(--muted);border-radius:8px;padding:6px 9px;font:inherit;font-size:12.5px;cursor:pointer}.nviews button.on{color:var(--ink);border-color:var(--gold)}
+.nhelp{font-size:12px;color:var(--muted);margin:8px 0 6px}
+.ngrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(58px,1fr));gap:6px;max-height:320px;overflow-y:auto;padding:2px}
+.nc{position:relative;background:none;border:2px solid transparent;border-radius:9px;padding:3px;cursor:pointer;color:var(--ink);display:flex;flex-direction:column;align-items:center;gap:2px;-webkit-tap-highlight-color:transparent}
+.nc img{width:44px;height:44px;border-radius:7px;display:block}.nc span{font-size:10px;line-height:1.1;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nc.mx img,.nc.mg img{filter:grayscale(1) brightness(.45)}.nc.mx span,.nc.mg span{opacity:.45;text-decoration:line-through}
+.nc.mx::after,.nc.mg::after{content:"✗";position:absolute;top:8px;left:50%;transform:translateX(-50%);font-size:26px;font-weight:900;color:#ef6a6a;text-shadow:0 1px 3px #000}
+.nc.mg::after{color:#999}.nc.mg{cursor:default}
+.nc.ms{border-color:var(--gold);background:color-mix(in srgb,var(--gold) 14%,transparent)}.nc.ms::after{content:"★";position:absolute;top:-2px;right:2px;color:var(--gold);font-size:15px;text-shadow:0 1px 2px #000}
+.sugg button.sx{opacity:.5}.sugg .star{color:var(--gold)}.sugg .rx{color:#ef6a6a}
 .rpill{display:inline-block;font-size:11px;font-weight:800;padding:1px 7px;border-radius:999px;color:var(--rc);border:1px solid var(--rc);background:color-mix(in srgb,var(--rc) 14%,transparent);letter-spacing:.02em}
 .elo{margin-top:6px;font-weight:600}.elo .rpill{font-size:13px;padding:2px 9px}.elo b.up{color:#3ccf7d}.elo b.dn{color:#ef6a6a}.elon{display:block;font-size:12px;color:var(--muted);font-weight:500;margin-top:2px}
 .itab .chead,.itab .crow{grid-template-columns:72px 1fr 1fr 2.2fr .8fr 1fr;min-width:560px}
@@ -487,12 +501,12 @@ function render(){
   const t=T(S.target),wrong=S.guesses.filter(n=>n!==S.target).length;
   let h=`<div class="card">${clueHtml(t,wrong)}</div>`;
   if(S.done)h+=winHtml(t);
-  else h+=`<div class="inrow"><input id="gIn" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="${mode==="item"?"Type an item name…":"Type a champion name…"}" aria-label="${mode==="item"?"Item":"Champion"} name"><button id="gBtn" type="button" disabled>Guess</button><div class="sugg" id="sugg" role="listbox"></div></div>`;
+  else h+=`<div class="inrow"><input id="gIn" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="${mode==="item"?"Type an item name…":"Type a champion name…"}" aria-label="${mode==="item"?"Item":"Champion"} name"><button id="gBtn" type="button" disabled>Guess</button><div class="sugg" id="sugg" role="listbox"></div></div>${notesHtml()}`;
   if(S.guesses.length)h+=`<p class="count">${S.guesses.length} guess${S.guesses.length===1?"":"es"}${S.random?" · random round":""}</p>`;
   h+=guessesHtml(t);
   $("game").innerHTML=h;
   $("sub").textContent=S.random?`Random round: not today's ${mode==="item"?"item":"champion"}`:mode==="item"?"Guess today's League of Legends item":"Guess today's League of Legends champion";
-  if(!S.done)bindInput();
+  if(!S.done){bindInput();bindNotes();}
   afterRender(t,wrong);
 }
 // Scoring (same rules as the server): 100 for finishing, minus 10 per wrong guess (never below 10);
@@ -611,6 +625,28 @@ async function share(){
   catch(_){ta.style.display="block";ta.value=txt;ta.select();$("shareB").textContent="Copy the text below";}
 }
 
+// ---------- notes: mark candidates as ruled out (✗) or maybe (★) ----------
+// Tap an icon to cycle: nothing → ✗ ruled out → ★ maybe → nothing. Saved with the puzzle. No automatic filtering.
+let NOTES_OPEN=(()=>{try{return localStorage.getItem("cg-notes-open")==="1";}catch(_){return false;}})(),NOTES_VIEW="all";
+const notesList=()=>(mode==="item"?ITEMS:CH.filter(c=>mode==="classic"?c.info:true)).slice().sort((a,b)=>a.name.localeCompare(b.name));
+function notesHtml(){
+  const M=S.marks||{},nx=Object.values(M).filter(v=>v==="x").length,ns=Object.values(M).filter(v=>v==="s").length;
+  return `<div class="notes"><button type="button" class="nbtn" id="nTog" aria-expanded="${NOTES_OPEN}">📝 Notes <span>${nx?`✗ ${nx}`:""}${ns?` ★ ${ns}`:""}</span><b>${NOTES_OPEN?"▲":"▼"}</b></button>
+  ${NOTES_OPEN?`<div class="npanel"><div class="nbar"><input id="nQ" placeholder="Filter…" autocomplete="off" spellcheck="false"><div class="nviews">${[["all","All"],["open","Hide ✗"],["s","★ only"]].map(([k,l])=>`<button type="button" data-nv="${k}" class="${NOTES_VIEW===k?"on":""}">${l}</button>`).join("")}</div></div>
+  <p class="nhelp">Tap to cycle: ✗ ruled out → ★ maybe → clear</p><div class="ngrid" id="nGrid">${notesList().map(c=>{const g=S.guesses.includes(c.name),m=g?"g":(M[c.name]||"");return `<button type="button" class="nc ${m?"m"+m:""}" data-nn="${esc(c.name)}" title="${esc(c.name)}"${g?" disabled":""}><img src="${icon(c)}" alt="" loading="lazy"><span>${esc(c.name)}</span></button>`;}).join("")}</div></div>`:""}</div>`;}
+function bindNotes(){
+  const tog=$("nTog");if(!tog)return;
+  tog.onclick=()=>{NOTES_OPEN=!NOTES_OPEN;try{localStorage.setItem("cg-notes-open",NOTES_OPEN?"1":"0");}catch(_){}const v=$("gIn")&&$("gIn").value;render();if(v&&$("gIn"))$("gIn").value=v;};
+  const grid=$("nGrid");if(!grid)return;
+  const apply=()=>{const q=norm(($("nQ")||{}).value||"");for(const b of grid.children){const n=b.dataset.nn,m=(S.marks||{})[n]||"";b.hidden=(q&&!norm(n).includes(q))||(NOTES_VIEW==="open"&&(m==="x"||b.disabled))||(NOTES_VIEW==="s"&&m!=="s");}};
+  grid.addEventListener("click",e=>{const b=e.target.closest("[data-nn]");if(!b||b.disabled)return;const n=b.dataset.nn;S.marks=S.marks||{};const c=S.marks[n]||"",nx=c===""?"x":c==="x"?"s":"";
+    if(nx)S.marks[n]=nx;else delete S.marks[n];save(skey(),S);b.className="nc "+(nx?"m"+nx:"");
+    const M=S.marks,cx=Object.values(M).filter(v=>v==="x").length,cs=Object.values(M).filter(v=>v==="s").length;tog.querySelector("span").textContent=`${cx?`✗ ${cx}`:""}${cs?` ★ ${cs}`:""}`;apply();});
+  $("nQ").addEventListener("input",apply);
+  document.querySelectorAll("[data-nv]").forEach(b=>b.onclick=()=>{NOTES_VIEW=b.dataset.nv;document.querySelectorAll("[data-nv]").forEach(x=>x.classList.toggle("on",x===b));apply();});
+  apply();
+}
+
 // ---------- input with suggestions ----------
 function bindInput(){
   const inp=$("gIn"),box=$("sugg"),btn=$("gBtn");let act=0,items=[];
@@ -618,9 +654,10 @@ function bindInput(){
   const draw=()=>{
     const q=norm(inp.value);
     const LIST=mode==="item"?ITEMS:CH;
-    items=q?LIST.filter(c=>!used.has(c.name)&&(mode==="classic"?c.info:true)&&norm(c.name).startsWith(q)).concat(LIST.filter(c=>!used.has(c.name)&&(mode==="classic"?c.info:true)&&!norm(c.name).startsWith(q)&&norm(c.name).includes(q))).slice(0,8):[];
+    const M=S.marks||{},rank=c=>M[c.name]==="s"?0:M[c.name]==="x"?2:1;
+    items=q?LIST.filter(c=>!used.has(c.name)&&(mode==="classic"?c.info:true)&&norm(c.name).startsWith(q)).concat(LIST.filter(c=>!used.has(c.name)&&(mode==="classic"?c.info:true)&&!norm(c.name).startsWith(q)&&norm(c.name).includes(q))).map((c,i)=>[c,i]).sort((a,b)=>rank(a[0])-rank(b[0])||a[1]-b[1]).map(x=>x[0]).slice(0,8):[];
     act=0;box.classList.toggle("on",items.length>0);
-    box.innerHTML=items.map((c,i)=>`<button type="button" role="option" data-n="${esc(c.name)}" class="${i===act?"act":""}"><img src="${icon(c)}" alt="">${esc(c.name)}</button>`).join("");
+    box.innerHTML=items.map((c,i)=>{const m=(S.marks||{})[c.name];return `<button type="button" role="option" data-n="${esc(c.name)}" class="${i===act?"act":""}${m==="x"?" sx":""}"><img src="${icon(c)}" alt="">${esc(c.name)}${m==="s"?" <b class=\"star\">★</b>":m==="x"?" <b class=\"rx\">✗</b>":""}</button>`;}).join("");
     btn.disabled=!items.length;
   };
   inp.addEventListener("input",draw);
