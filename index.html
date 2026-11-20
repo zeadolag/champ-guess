@@ -110,7 +110,7 @@ nav button .ok{color:var(--green);font-size:13px}
 .nhelp{font-size:12px;color:var(--muted);margin:8px 0 6px}
 .ngrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(58px,1fr));gap:6px;max-height:320px;overflow-y:auto;padding:2px}
 .nc{position:relative;background:none;border:2px solid transparent;border-radius:9px;padding:3px;cursor:pointer;color:var(--ink);display:flex;flex-direction:column;align-items:center;gap:2px;-webkit-tap-highlight-color:transparent}
-.nc[hidden]{display:none}.nc img{width:44px;height:44px;border-radius:7px;display:block}.nc span{font-size:10px;line-height:1.1;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nc[hidden],.nh[hidden]{display:none}.nh{grid-column:1/-1;font-size:11.5px;font-weight:800;color:var(--gold);letter-spacing:.04em;text-transform:uppercase;padding:6px 2px 0;border-top:1px solid var(--line);margin-top:2px}.nh:first-child{border-top:0;margin-top:0}.nc img{width:44px;height:44px;border-radius:7px;display:block}.nc span{font-size:10px;line-height:1.1;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .nc.mx img,.nc.mg img{filter:grayscale(1) brightness(.45)}.nc.mx span,.nc.mg span{opacity:.45;text-decoration:line-through}
 .nc.mx::after,.nc.mg::after{content:"✗";position:absolute;top:8px;left:50%;transform:translateX(-50%);font-size:26px;font-weight:900;color:#ef6a6a;text-shadow:0 1px 3px #000}
 .nc.mg::after{color:#999}.nc.mg{cursor:default}
@@ -718,21 +718,35 @@ function vsResults(){
 // ---------- notes: mark candidates as ruled out (✗) or maybe (★) ----------
 // Tap an icon to cycle: nothing → ✗ ruled out → ★ maybe → nothing. Saved with the puzzle. No automatic filtering.
 let NOTES_OPEN=(()=>{try{return localStorage.getItem("cg-notes-open")==="1";}catch(_){return false;}})(),NOTES_VIEW="all";
-const notesList=()=>(mode==="item"?ITEMS:CH.filter(c=>mode==="classic"?c.info:true)).slice().sort((a,b)=>a.name.localeCompare(b.name));
+// Each mode's notes grid shows only things that can be that mode's answer, with sort options that fit the mode.
+const NOTES_SORTS={classic:[["az","A–Z"],["year","Year"],["region","Region"],["pos","Role"]],item:[["price","Price"],["type","Type"],["az","A–Z"]]};
+let NOTES_SORT=(()=>{try{return JSON.parse(localStorage.getItem("cg-notes-sort")||"{}");}catch(_){return {};}})();
+const notesSortKey=()=>{const o=NOTES_SORTS[mode];return o?(o.find(x=>x[0]===NOTES_SORT[mode])||o[0])[0]:"az";};
+function notesGroups(){
+  const base=(mode==="item"?pool("item"):mode==="quote"?pool("quote",S.random?null:S.day):CH.filter(c=>c.info)).slice().sort((a,b)=>a.name.localeCompare(b.name));
+  if(S.guesses.length)for(const n of S.guesses){const g=T(n);if(g&&!base.includes(g))base.push(g);}
+  const k=notesSortKey(),grp=(f,order)=>{const m=new Map();for(const c of base)for(const key of [].concat(f(c))){if(!m.has(key))m.set(key,[]);m.get(key).push(c);}return [...m.entries()].sort(order);};
+  if(k==="year")return grp(c=>String(c.info.year),(a,b)=>a[0]-b[0]);
+  if(k==="region")return grp(c=>c.info.regions,(a,b)=>a[0].localeCompare(b[0]));
+  if(k==="pos"){const O=["Top","Jungle","Middle","Bottom","Support"];return grp(c=>c.info.pos,(a,b)=>O.indexOf(a[0])-O.indexOf(b[0]));}
+  if(k==="price"){base.sort((a,b)=>a.cost-b.cost||a.name.localeCompare(b.name));const B=[[999,"Under 1,000 g"],[1999,"1,000–1,999 g"],[2499,"2,000–2,499 g"],[2799,"2,500–2,799 g"],[2999,"2,800–2,999 g"],[3000,"3,000 g"],[3250,"3,050–3,250 g"],[1e9,"3,300 g +"]];return grp(c=>B.find(x=>c.cost<=x[0])[1],(a,b)=>B.findIndex(x=>x[1]===a[0])-B.findIndex(x=>x[1]===b[0]));}
+  if(k==="type"){const O=["Legendary","Epic","Tier 3 Boots","Boots","Support","Basic","Starter"];return grp(c=>c.type,(a,b)=>O.indexOf(a[0])-O.indexOf(b[0]));}
+  return [[null,base]];
+}
 let NOTES_BRUSH=(()=>{try{return localStorage.getItem("cg-notes-brush")||"x";}catch(_){return "x";}})();
 function notesHtml(){
   const M=S.marks||{},nx=Object.values(M).filter(v=>v==="x").length,ns=Object.values(M).filter(v=>v==="s").length;
   return `<div class="notes"><button type="button" class="nbtn" id="nTog" aria-expanded="${NOTES_OPEN}">📝 Notes <span>${nx?`✗ ${nx}`:""}${ns?` ★ ${ns}`:""}</span><b>${NOTES_OPEN?"▲":"▼"}</b></button>
   ${NOTES_OPEN?`<div class="npanel"><div class="nbar"><div class="nviews nbrush"><small>Mark as</small>${[["x","✗ Ruled out"],["s","★ Maybe"],["c","○ Clear"]].map(([k,l])=>`<button type="button" data-nb="${k}" class="${NOTES_BRUSH===k?"on":""}">${l}</button>`).join("")}</div>
-  <div class="nviews"><small>Show</small>${[["all","All"],["open","Hide ✗"],["s","★ only"]].map(([k,l])=>`<button type="button" data-nv="${k}" class="${NOTES_VIEW===k?"on":""}">${l}</button>`).join("")}<button type="button" id="nClr" class="nclr">Clear all</button></div></div>
-  <p class="nhelp">Tap an icon to mark it, or hold and drag across icons to mark several. Tap a marked icon again to clear it.</p><div class="ngrid" id="nGrid">${notesList().map(c=>{const g=S.guesses.includes(c.name),m=g?"g":(M[c.name]||"");return `<button type="button" class="nc ${m?"m"+m:""}" data-nn="${esc(c.name)}" title="${esc(c.name)}"${g?" disabled":""}><img src="${icon(c)}" alt="" loading="lazy" draggable="false"><span>${esc(c.name)}</span></button>`;}).join("")}</div></div>`:""}</div>`;}
+  ${NOTES_SORTS[mode]?`<div class="nviews"><small>Sort by</small>${NOTES_SORTS[mode].map(([k,l])=>`<button type="button" data-ns="${k}" class="${notesSortKey()===k?"on":""}">${l}</button>`).join("")}</div>`:""}<div class="nviews"><small>Show</small>${[["all","All"],["open","Hide ✗"],["s","★ only"]].map(([k,l])=>`<button type="button" data-nv="${k}" class="${NOTES_VIEW===k?"on":""}">${l}</button>`).join("")}<button type="button" id="nClr" class="nclr">Clear all</button></div></div>
+  <p class="nhelp">Tap an icon to mark it, or hold and drag across icons to mark several. Tap a marked icon again to clear it.</p><p class="nhelp" id="nEmpty" hidden>Nothing to show here yet.</p><div class="ngrid" id="nGrid">${notesGroups().map(([h,L])=>(h?`<div class="nh">${esc(h)}</div>`:"")+L.map(c=>{const g=S.guesses.includes(c.name),m=g?"g":(M[c.name]||"");return `<button type="button" class="nc ${m?"m"+m:""}" data-nn="${esc(c.name)}" title="${esc(c.name)}"${g?" disabled":""}><img src="${icon(c)}" alt="" loading="lazy" draggable="false"><span>${esc(c.name)}</span></button>`;}).join("")).join("")}</div></div>`:""}</div>`;}
 function bindNotes(){
   const tog=$("nTog");if(!tog)return;
   tog.onclick=()=>{NOTES_OPEN=!NOTES_OPEN;try{localStorage.setItem("cg-notes-open",NOTES_OPEN?"1":"0");}catch(_){}const v=$("gIn")&&$("gIn").value;render();if(v&&$("gIn"))$("gIn").value=v;};
   const grid=$("nGrid");if(!grid)return;
   const count=()=>{const M=S.marks||{},cx=Object.values(M).filter(v=>v==="x").length,cs=Object.values(M).filter(v=>v==="s").length;tog.querySelector("span").textContent=`${cx?`✗ ${cx}`:""}${cs?` ★ ${cs}`:""}`;};
-  const apply=()=>{for(const b of grid.children){const m=(S.marks||{})[b.dataset.nn]||"";b.hidden=(NOTES_VIEW==="open"&&(m==="x"||b.disabled))||(NOTES_VIEW==="s"&&m!=="s");}};
-  const setMark=(b,v)=>{if(!b||b.disabled)return;const n=b.dataset.nn;S.marks=S.marks||{};if(v)S.marks[n]=v;else delete S.marks[n];b.className="nc "+(v?"m"+v:"");};
+  const apply=()=>{let last=null,any=false;const fin=()=>{if(last)last.hidden=!any;};for(const b of grid.children){if(b.classList.contains("nh")){fin();last=b;any=false;continue;}const m=(S.marks||{})[b.dataset.nn]||"";b.hidden=(NOTES_VIEW==="open"&&(m==="x"||b.disabled))||(NOTES_VIEW==="s"&&m!=="s");if(!b.hidden)any=true;}fin();const e=$("nEmpty");if(e)e.hidden=[...grid.querySelectorAll(".nc")].some(b=>!b.hidden);};
+  const setMark=(b,v)=>{if(!b||b.disabled)return;const n=b.dataset.nn;S.marks=S.marks||{};if(v)S.marks[n]=v;else delete S.marks[n];grid.querySelectorAll(`[data-nn="${CSS.escape(n)}"]`).forEach(x=>{if(!x.disabled)x.className="nc "+(v?"m"+v:"");});};
   const done=()=>{save(skey(),S);count();apply();};
   // Painting: the first icon decides the action (the chosen mark, or clear if it already had it); dragging applies the same to every icon passed over.
   let paint=null,timer=null,start=null,moved=false;
@@ -750,7 +764,8 @@ function bindNotes(){
   grid.addEventListener("contextmenu",e=>e.preventDefault());
   document.querySelectorAll("[data-nb]").forEach(b=>b.onclick=()=>{NOTES_BRUSH=b.dataset.nb;try{localStorage.setItem("cg-notes-brush",NOTES_BRUSH);}catch(_){}document.querySelectorAll("[data-nb]").forEach(x=>x.classList.toggle("on",x===b));});
   document.querySelectorAll("[data-nv]").forEach(b=>b.onclick=()=>{NOTES_VIEW=b.dataset.nv;document.querySelectorAll("[data-nv]").forEach(x=>x.classList.toggle("on",x===b));apply();});
-  $("nClr").onclick=()=>{if(!S.marks||!Object.keys(S.marks).length)return;S.marks={};for(const b of grid.children)if(!b.disabled)b.className="nc";done();};
+  $("nClr").onclick=()=>{if(!S.marks||!Object.keys(S.marks).length)return;S.marks={};grid.querySelectorAll("[data-nn]").forEach(b=>{if(!b.disabled)b.className="nc";});done();};
+  document.querySelectorAll("[data-ns]").forEach(b=>b.onclick=()=>{NOTES_SORT[mode]=b.dataset.ns;try{localStorage.setItem("cg-notes-sort",JSON.stringify(NOTES_SORT));}catch(_){}const v=$("gIn")&&$("gIn").value,sc=grid.scrollTop;render();if(v&&$("gIn"))$("gIn").value=v;});
   apply();
 }
 
