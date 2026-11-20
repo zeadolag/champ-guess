@@ -102,6 +102,7 @@ nav button .ok{color:var(--green);font-size:13px}
 .vstrack{height:5px;background:var(--line);border-radius:3px;margin-top:10px;overflow:hidden}.vstrack i{display:block;height:100%;background:linear-gradient(90deg,#e05252,var(--gold));transition:width 1s linear}
 .vscd{text-align:center}.vscd .cd{font-size:64px;font-weight:900;color:var(--gold);margin:6px 0}
 .vsres{text-align:center}.vsscore{font-size:30px;margin:4px 0}.vst2{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px}.vst2 td,.vst2 th{padding:7px 6px;border-bottom:1px solid var(--line)}.vst2 td:first-child{text-align:left}.vst2 small{color:var(--muted);margin-left:4px}.vst2 .x{color:var(--muted)}
+.place{margin-top:6px;font-size:15px}.place:empty{display:none}
 .voice{margin-top:10px}.voice .btn{font-size:14px;padding:8px 14px}
 .notes{margin:4px 0 8px}.nbtn{display:flex;align-items:center;gap:8px;width:100%;background:var(--panel);border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:9px 12px;font:inherit;font-weight:700;cursor:pointer}
 .nbtn span{color:var(--muted);font-weight:600;font-size:13px}.nbtn b{margin-left:auto;color:var(--muted);font-size:11px}
@@ -556,8 +557,7 @@ function guessesHtml(t){
 function winHtml(t){
   if(S.vs)return vsRoundEndHtml(t);
   const n=S.guesses.length;
-  return `<div class="card win"><img class="big" src="${icon(t)}" alt=""><h2>${esc(t.name)}</h2><p class="wsub">${S.extra&&(!HASBONUS(mode)||S.bonus!=null)?esc(S.extra)+" · ":""}Found in ${n} guess${n===1?"":"es"}</p>${S.guesses[n-1]!==S.target?`<p class="hint">You guessed <b>${esc(S.guesses[n-1])}</b>, which matches on every column, so it counts!</p>`:""}${mode==="ability"?bonusHtml():mode==="splash"?`<div id="skB"></div>`:""}<p class="pts">+${total()} points${HASBONUS(mode)&&S.bonus===1?" (incl. +20 bonus)":""}${S.random?" (random rounds don't count)":""}</p>${S.elo?(()=>{const a=rankOf(S.elo.after),b=rankOf(S.elo.before),d=Math.round(S.elo.delta*4);if(S.elo.provisional)return `<p class="elo">${rankPill(S.elo.before)} <b class="${d>=0?"up":"dn"}">≈ ${d>=0?"+":""}${d} LP</b><small class="elon">if the day ended now · final LP after midnight, once everyone has played</small></p>`;
-  return `<p class="elo">${rankPill(S.elo.after)} ${a.lp} LP <b class="${d>=0?"up":"dn"}">${d>=0?"+":""}${d} LP</b>${a.name!==b.name?` · ${S.elo.after>S.elo.before?"Promoted":"Demoted"} from ${esc(b.name)}`:""}</p>`;})():""}
+  return `<div class="card win"><img class="big" src="${icon(t)}" alt=""><h2>${esc(t.name)}</h2><p class="wsub">${S.extra&&(!HASBONUS(mode)||S.bonus!=null)?esc(S.extra)+" · ":""}Found in ${n} guess${n===1?"":"es"}</p>${S.guesses[n-1]!==S.target?`<p class="hint">You guessed <b>${esc(S.guesses[n-1])}</b>, which matches on every column, so it counts!</p>`:""}${mode==="ability"?bonusHtml():mode==="splash"?`<div id="skB"></div>`:""}<p class="pts">+${total()} points${HASBONUS(mode)&&S.bonus===1?" (incl. +20 bonus)":""}${S.random?" (random rounds don't count)":""}</p><p class="place" id="wPlace"></p>
   <div class="btns"><button class="btn pri" id="shareB" type="button">Copy result</button><button class="btn" id="randB" type="button">Play a random one</button>${nextMode()?`<button class="btn" id="nextB" type="button">Next: ${nextMode()[1]}</button>`:""}</div><textarea class="share" id="shareT" rows="5" readonly aria-label="Result to share"></textarea></div>`;
 }
 // Ability bonus: after finding the champion, one try at Passive/Q/W/E/R for +20.
@@ -624,6 +624,8 @@ async function afterRender(t,wrong){
     }
     if(S.done&&S.bonus!=null){const p=document.querySelector(".win .wsub");if(p)p.textContent=`${S.extra} · Found in ${S.guesses.length} guess${S.guesses.length===1?"":"es"}`;}
   }
+  if(S.done&&!S.vs&&!S.random&&SESSION&&scopeId())setTimeout(async()=>{try{const r=await api(`/live?mode=${mode}&scope=channel&id=${scopeId()}&day=${S.day}`);const d=(r.rows||[]).filter(x=>x.done),i=ME?d.findIndex(x=>x.id===ME.id):-1,el=$("wPlace");
+      if(el&&i>=0)el.innerHTML=`${["🥇","🥈","🥉"][i]||"#"+(i+1)} <b>${i+1}${["st","nd","rd"][i]||"th"} place</b> in this channel today${d.length>1?` (of ${d.length} so far)`:""}`;}catch(_){}},700);
   if(S.done&&!S.vs){
     $("shareB").onclick=share;$("randB").onclick=randomRound;const nb=$("nextB");if(nb)nb.onclick=()=>{mode=nextMode()[0];start();};
   }
@@ -824,7 +826,7 @@ function rankOf(elo){const t=Math.max(0,Math.min(9,Math.floor((elo-650)/100)));
   return {tier:TIERS[t][0],col:TIERS[t][1],name:TIERS[t][0]+" "+["IV","III","II","I"][div],lp:Math.max(0,Math.min(99,Math.round((elo-650-t*100-div*25)*4)))};}
 const rankPill=elo=>{const r=rankOf(elo);return `<span class="rpill" style="--rc:${r.col}">${esc(r.name)}</span>`;};
 const ladderId=()=>CTX.guild||CTX.channel;
-function gotElo(m,st,res){if(!res||!res.elo)return;st.elo=res.elo;save("cg-"+m,st);if(m===mode&&S&&!S.random&&S.day===st.day){S.elo=res.elo;render();}if(SOC.tab==="ranked")refreshSocial();}
+function gotElo(m,st,res){return;st.elo=res.elo;save("cg-"+m,st);if(m===mode&&S&&!S.random&&S.day===st.day){S.elo=res.elo;render();}}
 const scopeId=()=>SOC.scope==="server"?CTX.guild:CTX.channel;
 async function refreshSocial(){
   if(!IN_DISCORD)return;
@@ -860,15 +862,15 @@ function renderSocial(){
   const lbl=MODES.find(m=>m[0]===mode)[1];
   const rc=SOC.recap,stk=rc?`<span class="streak${rc.today?" on":""}" title="Days in a row someone here finished a puzzle${rc.best?` (best: ${rc.best})`:""}">${emo("🔥")} ${rc.streak} day${rc.streak===1?"":"s"}</span>`:"";
   let h=`<h3><span>${SOC.tab==="recap"?"Last 7 days":SOC.tab==="ranked"?(CTX.guild?"Server ladder":"Ladder"):`${lbl} · ${SOC.tab==="live"?"today":SOC.tab==="season"?"this month":"all time"}`}</span><span class="h3r">${stk}${SDK?`<button type="button" class="invb" id="invB">+ Invite</button>`:""}</span></h3>
-  <div class="stabs"><div>${[["live","Live"],["ranked","Ranked"],["season","Season"],["all","All-time"],["recap","Recap"]].map(([k,l])=>`<button type="button" data-stab="${k}" aria-pressed="${SOC.tab===k}">${l}</button>`).join("")}</div><div${SOC.tab==="ranked"?` style="display:none"`:""}>${[["channel","Channel"],["server","Server"]].map(([k,l])=>`<button type="button" data-sscope="${k}" aria-pressed="${SOC.scope===k}"${k==="server"&&!CTX.guild?" disabled":""}>${l}</button>`).join("")}</div></div>`;
+  <div class="stabs"><div>${[["live","Live"],["season","Season"],["all","All-time"],["recap","Recap"]].map(([k,l])=>`<button type="button" data-stab="${k}" aria-pressed="${SOC.tab===k}">${l}</button>`).join("")}</div><div${SOC.tab==="ranked"?` style="display:none"`:""}>${[["channel","Channel"],["server","Server"]].map(([k,l])=>`<button type="button" data-sscope="${k}" aria-pressed="${SOC.scope===k}"${k==="server"&&!CTX.guild?" disabled":""}>${l}</button>`).join("")}</div></div>`;
   if(SOC.msg)h+=`<p class="sempty">${esc(SOC.msg)}</p>`;
   else if(SOC.tab==="recap")h+=recapHtml(rc);
-  else if(SOC.tab==="ranked")h+=SOC.rows.length?`<p class="rcsum">Solve daily puzzles in fewer guesses than everyone else to climb. LP is settled after midnight, once everyone has played. Unsolved ones count as a loss.</p>`+SOC.rows.map((u,i)=>{const r=rankOf(u.elo);return `<div class="srow${ME&&u.id===ME.id?" me":""}"><span class="rk">${i+1}</span><img src="${avatar(u)}" alt=""><span class="nm">${esc(u.name)}<small>${rankPill(u.elo)} ${r.lp} LP</small></span><span class="tm">${u.games} game${u.games==1?"":"s"}</span></div>`;}).join(""):`<p class="sempty">No ranked games here yet. Solve a daily puzzle to get your rank (everyone starts in Gold II).</p>`;
   else if(!SOC.rows.length)h+=`<p class="sempty">${SOC.tab==="live"?"Nobody has played today's "+lbl+" here yet. Be the first!":"No wins here yet."}</p>`;
   else h+=SOC.rows.map((u,i)=>{const me=ME&&u.id===ME.id;let right,sub;
     if(SOC.tab==="live"){const t=u.done?u.finished_at-u.started_at:(SOC.now||Date.now())-u.started_at+(Date.now()-(SOC.at||Date.now()));right=`<span class="tm">${dur(t)}</span>`;sub=u.done?`<span class="ok">✓</span> ${u.guesses} guess${u.guesses==1?"":"es"} · ${u.points} pts`:`Playing · ${u.guesses} guess${u.guesses==1?"":"es"}`;}
     else{right=`<span class="tm"><b>${u.points}</b> pts</span>`;sub=`${u.wins} win${u.wins==1?"":"s"} · avg ${u.avg_guesses} guesses`;}
-    return `<div class="srow${me?" me":""}"><span class="rk">${i+1}</span><img src="${avatar(u)}" alt=""><span class="nm">${esc(u.name)}<small>${sub}</small></span>${right}</div>`;}).join("");
+    const place=SOC.tab==="live"&&u.done?SOC.rows.filter(x=>x.done).indexOf(u):-1;
+    return `<div class="srow${me?" me":""}"><span class="rk">${place>=0&&place<3?["🥇","🥈","🥉"][place]:i+1}</span><img src="${avatar(u)}" alt=""><span class="nm">${esc(u.name)}<small>${sub}</small></span>${right}</div>`;}).join("");
   el.innerHTML=h;
   const ib=$("invB");if(ib)ib.onclick=async()=>{try{if(!AUTHED)await discordLogin(location.hostname.split(".")[0]);await SDK.commands.openInviteDialog();}catch(_){}};
 }

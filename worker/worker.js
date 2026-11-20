@@ -120,7 +120,7 @@ async function progress(req, env, ctx) {
   if (done && !(before && before.done)) {
     const row = await env.DB.prepare("SELECT guesses, guild_id, channel_id FROM plays WHERE user_id = ?1 AND mode = ?2 AND day = ?3").bind(uid, b.mode, b.day).first();
     const scope = row && (row.guild_id || row.channel_id);
-    if (scope) elo = await estimateElo(env, uid, scope, b.mode, b.day, row.guesses + (b.mode === "ability" ? new Set(helps).size : 0)).catch(() => null);
+    // Daily modes no longer use Elo (VS has its own); placements come from /live.
   }
   return json({ ok: true, elo });
 }
@@ -442,7 +442,7 @@ async function buildCard(env, channel, day, peopleIds) {
   const list = Object.values(ppl).sort((a, b) => b.pts - a.pts).slice(0, 8);
   const g = await env.DB.prepare("SELECT guild_id FROM plays WHERE channel_id = ?1 AND guild_id IS NOT NULL LIMIT 1").bind(channel).first();
   const scope = (g && g.guild_id) || channel;
-  for (const u of list) { const r = await env.DB.prepare("SELECT elo FROM ratings WHERE scope_id = ?1 AND user_id = ?2").bind(scope, u.id).first(); u.rank = r ? rankName(r.elo) : null; }
+
   const solved = Object.values(ppl).filter(u => Object.values(u.m).some(x => x.done)).length;
   const names = list.map(u => `**${u.name}**`);
   const head = names.length <= 1 ? `${names[0] || "Someone"} is playing!` : `${names.slice(0, -1).join(", ")} and ${names.at(-1)} are playing!`;
@@ -489,7 +489,6 @@ async function updateCard(env, channel) {
 // Every night: yesterday's results and the group's streak, in each channel that plays.
 async function dailyRecaps(env, force) {
   const today = berlinDay(), y = addDays(today, -1), y2 = addDays(today, -2);
-  await settleDay(env, y).catch(() => {});
   if (!botAuth(env)) return { error: "no bot token" };
   const { results: chans } = await env.DB.prepare("SELECT DISTINCT channel_id FROM plays WHERE channel_id IS NOT NULL AND day >= ?1 AND day <= ?2").bind(y2, y).all();
   const out = [];
@@ -507,16 +506,8 @@ async function dailyRecaps(env, force) {
       const ppl = {};
       for (const r of results) { const u = ppl[r.id] = ppl[r.id] || { id: r.id, m: [], pts: 0 }; u.pts += r.points || 0; if (r.done) u.m.push(`${MODE_ICON[r.mode]}${r.guesses}${(r.mode === "ability" || r.mode === "splash") && r.bonus === 1 ? "★" : ""}`); }
       const rank = Object.values(ppl).filter(u => u.pts > 0).sort((a, b) => b.pts - a.pts);
-      // Ranked: everyone's settled LP change for yesterday and their rank now.
-      const g = await env.DB.prepare("SELECT guild_id FROM plays WHERE channel_id = ?1 AND guild_id IS NOT NULL LIMIT 1").bind(ch).first();
-      const scope = (g && g.guild_id) || ch;
-      for (const u of rank) {
-        const l = await env.DB.prepare("SELECT SUM(delta) AS d FROM elo_log WHERE user_id = ?1 AND scope_id = ?2 AND day = ?3").bind(u.id, scope, y).first();
-        const r = await env.DB.prepare("SELECT elo FROM ratings WHERE scope_id = ?1 AND user_id = ?2").bind(scope, u.id).first();
-        if (r && l && l.d != null) { const lp = Math.round(l.d * 4); u.lp = ` · ${rankName(r.elo)} (${lp >= 0 ? "+" : ""}${lp} LP)`; }
-      }
       content = `**Your group is on ${/^8|^1[18]$/.test(String(streak)) ? "an" : "a"} ${streak}-day streak!** 🔥 Here are yesterday's results:\n` +
-        rank.map((u, k) => `${k === 0 ? "👑" : k === 1 ? "🥈" : k === 2 ? "🥉" : "▫️"} ${u.pts} pts: <@${u.id}>  ${u.m.join(" ")}${u.lp || ""}`).join("\n");
+        rank.map((u, k) => `${k === 0 ? "👑" : k === 1 ? "🥈" : k === 2 ? "🥉" : "▫️"} ${u.pts} pts: <@${u.id}>  ${u.m.join(" ")}`).join("\n");
     } else {
       // Only announce a broken streak once, the day after it breaks.
       let before = 0, e = y2; while (days.has(e)) { before++; e = addDays(e, -1); }
