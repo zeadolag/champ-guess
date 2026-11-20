@@ -9,7 +9,7 @@
 //   DISCORD_BOT_TOKEN      (secret)  Developer Portal → Bot → Reset Token
 // plus a Cron Trigger (e.g. "5 23 * * *") for the daily recap.
 
-const MODES = new Set(["classic", "ability", "splash", "quote", "emoji", "item"]);
+const MODES = new Set(["classic", "ability", "splash", "quote", "emoji", "item", "connections"]);
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 // Scoring: 100 for finishing, minus 10 per wrong guess (never below 10).
 // In Ability mode, turning off grayscale or rotation each costs 20% of that,
@@ -204,7 +204,7 @@ function addDays(day, n) {
 // higher-rated players are expected to beat it by more. Everyone starts at 1000 (Gold II).
 // LP is only settled after midnight, once everyone's results for the day are in, so playing
 // early or late makes no difference. Until then the game shows an estimate.
-const ELO_START = 1000, PRIOR = { classic: 6, ability: 5, splash: 5, quote: 4, emoji: 4, item: 6 };
+const ELO_START = 1000, PRIOR = { classic: 6, ability: 5, splash: 5, quote: 4, emoji: 4, item: 6, connections: 2 };
 async function puzzleAvg(env, mode, day, uid) {
   const a = await env.DB.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(guesses), 0) AS s FROM plays WHERE mode = ?1 AND day = ?2 AND done = 1 AND user_id != ?3").bind(mode, day, uid).first();
   return (PRIOR[mode] * 3 + a.s) / (3 + a.n);
@@ -382,7 +382,7 @@ async function vsBoard(url, env) {
 // ================= Discord bot messages =================
 const API_D = "https://discord.com/api/v10";
 const GOLD = 0xC8AA6E, V2 = 1 << 15;
-const MODE_ICON = { classic: "🧩", ability: "✨", splash: "🖼️", quote: "💬", emoji: "😀", item: "💰" };
+const MODE_ICON = { classic: "🧩", ability: "✨", splash: "🖼️", quote: "💬", emoji: "😀", item: "💰", connections: "🔗" };
 const berlinDay = (t = Date.now()) => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Berlin" }).format(new Date(t));
 const avatarUrl = u => u.avatar ? `https://cdn.discordapp.com/avatars/${u.id}/${u.avatar}.png?size=128` : `https://cdn.discordapp.com/embed/avatars/${Number((BigInt(u.id) >> 22n) % 6n)}.png`;
 const playBtn = () => ({ type: 1, components: [{ type: 2, style: 1, label: "Play now!", custom_id: "launch" }] });

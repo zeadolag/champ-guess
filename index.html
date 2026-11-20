@@ -154,6 +154,21 @@ nav button .ok{color:var(--green);font-size:13px}
 .share{width:100%;margin-top:10px;background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:10px;font:13px/1.4 ui-monospace,monospace;resize:none;display:none}
 .count{color:var(--muted);font-size:13px;text-align:center;margin:-6px 0 10px}
 .msg{text-align:center;color:var(--muted);padding:40px 0}
+.cgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:10px 0}
+.ctile{min-height:64px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;color:var(--ink);font:inherit;font-weight:700;font-size:12.5px;line-height:1.15;padding:6px 4px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;text-align:center;word-break:break-word;user-select:none;-webkit-tap-highlight-color:transparent}
+.ctile img{width:26px;height:26px;border-radius:6px}
+.ctile.sel{background:#5a5a7a;border-color:#c7c7ef;color:#fff}
+.ctile.shake{animation:cshake .35s}
+@keyframes cshake{25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
+.cgrp{border-radius:10px;padding:10px 8px;margin:6px 0;text-align:center;color:#141414}
+.cgrp b{display:block;font-size:14px;text-transform:uppercase;letter-spacing:.02em}
+.cgrp span{font-size:13px}
+.cgrp.c0{background:#f9df6d}.cgrp.c1{background:#a0c35a}.cgrp.c2{background:#b0c4ef}.cgrp.c3{background:#ba81c5}
+.cgrp.rev{opacity:.75}
+.cmis{display:flex;gap:6px;justify-content:center;align-items:center;color:var(--muted);font-size:13.5px;margin:6px 0}
+.cmis i{width:11px;height:11px;border-radius:50%;background:var(--ink);display:inline-block}.cmis i.u{background:var(--line)}
+.cmsg{text-align:center;min-height:20px;font-weight:700;color:var(--gold2);margin:4px 0}
+@media (max-width:420px){.ctile{font-size:11px;min-height:58px}.ctile img{width:22px;height:22px}}
 footer{color:#5d6b80;font-size:11px;text-align:center;margin-top:24px;line-height:1.5}
 @media (max-width:520px){h1{font-size:24px}.emojis{font-size:34px}.emojis span{width:52px;height:52px}.quote{font-size:17px}}
 </style>
@@ -388,7 +403,7 @@ for(const line of RAW.split("\n")){const [n,g,pos,sp,res,rng,reg,yr,em,q]=line.s
 const TW=(IN_DISCORD?"/gh":"https://cdn.jsdelivr.net/gh")+"/jdecked/twemoji@v17.0.2/assets/svg/";
 function twCode(e){const s=e.includes("\u200D")?e:e.replace(/\uFE0F/g,"");return [...s].map(c=>c.codePointAt(0).toString(16)).join("-");}
 const emo=e=>`<img class="emo" src="${TW}${twCode(e)}.svg" alt="${e}" draggable="false" onerror="this.replaceWith(this.alt)">`;
-const MODES=[["classic","Classic","🧩"],["ability","Ability","✨"],["splash","Splash","🖼️"],["quote","Quote","💬"],["emoji","Emoji","😀"],["item","Item","💰"]];
+const MODES=[["classic","Classic","🧩"],["ability","Ability","✨"],["splash","Splash","🖼️"],["quote","Quote","💬"],["emoji","Emoji","😀"],["item","Item","💰"],["connections","Connections","🔗"]];
 const $=id=>document.getElementById(id);
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const norm=s=>s.toLowerCase().normalize("NFD").replace(/[^a-z0-9]/g,"");
@@ -484,6 +499,7 @@ function dailyPick(m,day){
 function pick(m,seedStr){const P=pool(m);const r=rng(hash(m+"|"+seedStr));return {target:P[Math.floor(r()*P.length)].name,r1:r(),r2:r(),r3:r()};}
 const skey=()=>S&&S.vs?"cg-vs-round":(S&&S.random?"cg-r-":"cg-")+mode;
 function start(){
+  if(mode==="connections")return connStart();
   if(mode==="quote"&&!QUOTES){$("game").innerHTML=`<p class="msg">Loading quotes…</p>`;renderNav();loadQuotes().then(start).catch(()=>{QUOTES={};start();});return;}
   if(mode==="item"&&!ITEMS){$("game").innerHTML=`<p class="msg">Loading items…</p>`;renderNav();loadItems().then(start).catch(()=>{$("game").innerHTML=`<p class="msg">Couldn't load the item list from Riot. Reload to try again.</p>`;});return;}
   const key="cg-"+mode;let st=load(key);
@@ -492,7 +508,7 @@ function start(){
   S=st;save("cg-mode",mode);renderNav();render();refreshSocial();
 }
 // Random rounds avoid the last 30 random answers in this mode (and today's daily answer).
-function randomRound(){const rec=load("cg-recent-"+mode)||[],d=load("cg-"+mode),avoid=new Set(rec.concat(d&&d.target?[d.target]:[]));
+function randomRound(){if(mode==="connections")return connRandom();const rec=load("cg-recent-"+mode)||[],d=load("cg-"+mode),avoid=new Set(rec.concat(d&&d.target?[d.target]:[]));
   let p;for(let i=0;i<40;i++){p=pick(mode,String(Math.random()));if(!avoid.has(p.target))break;}
   save("cg-recent-"+mode,rec.concat(p.target).slice(-30));S={day:today(),random:true,target:p.target,r:[p.r1,p.r2,p.r3],guesses:[],done:false};save(skey(),S);render();}
 function dailyDone(m){const st=load("cg-"+m);return st&&st.day===today()&&!st.random&&st.done;}
@@ -514,6 +530,7 @@ function classicCells(g,t){const G=g.info,T=t.info;return [
 
 // ---------- rendering ----------
 function render(){
+  if(mode==="connections"&&S&&!S.vs)return connRender();
   if(S&&S.vs&&vsNow()<VS.st.match.round_started){$("game").innerHTML=vsBarHtml()+vsCountdownHtml();return;}
   const t=T(S.target),wrong=S.guesses.filter(n=>n!==S.target).length;
   let h=(S.vs?vsBarHtml():"")+`<div class="card">${clueHtml(t,wrong)}</div>`;
@@ -631,6 +648,7 @@ async function afterRender(t,wrong){
   }
 }
 function shareText(){
+  if(mode==="connections")return `Leagledle · Connections${S.random?" (random)":" · "+S.day}\n${S.lost?"Out of mistakes":`Solved with ${S.mistakes} mistake${S.mistakes===1?"":"s"}`}${S.lost?"":` · ${score("connections",S.mistakes+1)} pts`}\n${S.guesses.map(g=>g.map(t=>CEMO[S.puz.cols[cgroupOf(t)]]).join("")).join("\n")}`;
   const t=T(S.target),lbl=MODES.find(m=>m[0]===mode)[1];
   let rows;
   if(mode==="classic")rows=S.guesses.map(n=>classicCells(BY[n],t).map(c=>({g:"🟩",o:"🟨",x:"🟥"})[c[2]]).join("")).join("\n");
@@ -652,7 +670,7 @@ function vsExit(){if(!VS)return;clearInterval(VS.poll);if(VS.id&&VS.st&&VS.st.ma
 function vsLobby(){
   if(VS)vsExit();VS={id:null,st:null,poll:null,rk:null,off:0,shown:null};renderSocial();renderNav();$("sub").textContent="VS: race a friend through every mode";
   if(!SESSION){$("game").innerHTML=`<div class="card"><h2>⚔️ VS</h2><p class="hint">VS needs Discord sign-in. Open Leagledle from the Apps button in a Discord channel to play.</p></div>`;return;}
-  $("game").innerHTML=`<div class="card vsl"><h2>⚔️ VS</h2><p class="hint">Race a friend through one random puzzle in every mode: ${MODES.map(m=>emo(m[2])).join(" ")}<br>90 seconds per round. Fewer guesses and a faster solve = more points. Highest total wins and gains VS Elo.</p>
+  $("game").innerHTML=`<div class="card vsl"><h2>⚔️ VS</h2><p class="hint">Race a friend through one random puzzle in every mode: ${MODES.filter(m=>m[0]!=="connections").map(m=>emo(m[2])).join(" ")}<br>90 seconds per round. Fewer guesses and a faster solve = more points. Highest total wins and gains VS Elo.</p>
     <div class="btns"><button class="btn pri" id="vsNew" type="button">Create match</button></div><div id="vsOpenL"></div></div>
     <div class="card vsl"><h3>VS ladder</h3><div id="vsBoardL"><p class="hint">Loading…</p></div></div>`;
   $("vsNew").onclick=async()=>{const r=await api("/vs/create",{method:"POST",body:JSON.stringify({channel:CTX.channel,guild:CTX.guild})});if(r.id)vsEnter(r.id);};
@@ -809,6 +827,103 @@ function guess(name){
   if(!S.done&&matchMedia("(hover:hover)").matches){const i=$("gIn");if(i)i.focus();}
   if(S.done)window.scrollTo({top:0,behavior:"smooth"});
 }
+
+// ---------- League Connections ----------
+// Daily board of 4 groups (Yellow easiest → Purple hardest), built from the reviewed category list
+// in connections.json. A tile is only used if it fits none of the board's other three groups.
+
+const CONN_EPOCH="2026-11-20";let CONN=null;const CPICKS={};
+const lc=s=>s.toLowerCase();
+function connBuild(r,avoid){
+  const by=[[],[],[],[]];CONN.forEach((c,i)=>{if(!avoid||!avoid.has(i))by[c.c].push(i);});
+  const shuf=a=>{a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(r()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;};
+  for(let tries=0;tries<500;tries++){
+    const ids=by.map(L=>L[Math.floor(r()*L.length)]);
+    if(new Set(ids.map(i=>CONN[i].t)).size<4)continue;
+    // Boards read best when most groups use the same kind of tile (champions, items or terms):
+    // at least three groups of one kind, unless nothing fits after many tries.
+    if(tries<400){const k={};ids.forEach(i=>k[CONN[i].k]=(k[CONN[i].k]||0)+1);if(Math.max(...Object.values(k))<3)continue;}
+    const sets=ids.map(i=>new Set(CONN[i].a.map(lc))),used=new Set(),groups=[];let ok=true;
+    for(let g=0;g<4&&ok;g++){
+      const pick=[];for(const x of shuf(CONN[ids[g]].a)){const k=lc(x);if(used.has(k)||sets.some((s,j)=>j!==g&&s.has(k)))continue;pick.push(x);used.add(k);if(pick.length===4)break;}
+      if(pick.length<4)ok=false;else groups.push(pick);}
+    if(!ok)continue;
+    return {ids,groups,order:shuf(groups.flat())};
+  }
+  return null;
+}
+function connAddDay(d){const t=new Date(d+"T12:00:00");t.setDate(t.getDate()+1);return t.getFullYear()+"-"+String(t.getMonth()+1).padStart(2,"0")+"-"+String(t.getDate()).padStart(2,"0");}
+function connDaily(day){
+  if(CPICKS[day])return CPICKS[day];
+  // Each colour avoids its categories from the last few weeks (about 60% of that colour's pool).
+  const cap=[0,1,2,3].map(c=>Math.floor(CONN.filter(x=>x.c===c).length*.6)),recent=[[],[],[],[]];
+  let d=day<CONN_EPOCH?day:CONN_EPOCH,res=null;
+  for(let i=0;i<5000;i++){
+    res=connBuild(rng(hash("conn|"+d)),new Set(recent.flat()))||connBuild(rng(hash("conn|"+d)),null);
+    res.ids.forEach((id,c)=>{recent[c].push(id);if(recent[c].length>cap[c])recent[c].shift();});
+    if(d>=day)break;d=connAddDay(d);
+  }
+  return CPICKS[day]=res;
+}
+
+async function loadConn(){if(CONN)return;CONN=await (await fetch("connections.json")).json();}
+// Server counts: a win with N mistakes is sent like N+1 guesses (100 − 10 per mistake); a loss isn't "done".
+const pg=(m,st)=>m==="connections"?{guesses:(st.mistakes||0)+1,done:!!(st.done&&!st.lost)}:{guesses:st.guesses.length,done:st.done};
+function connState(p,day,random){return {day,random,puz:{names:p.ids.map(i=>CONN[i].n),cols:p.ids.map(i=>CONN[i].c),groups:p.groups},order:p.order,sel:[],solved:[],mistakes:0,guesses:[],done:false,lost:false,started:Date.now()};}
+function connStart(){
+  if(!CONN){$("game").innerHTML=`<p class="msg">Loading Connections…</p>`;renderNav();loadConn().then(connStart).catch(()=>{$("game").innerHTML=`<p class="msg">Couldn't load the Connections list. Reload to try again.</p>`;});return;}
+  const key="cg-connections";let st=load(key);
+  if(!st||st.random||st.day!==today()||!st.puz){st=connState(connDaily(today()),today(),false);save(key,st);}
+  S=st;save("cg-mode",mode);renderNav();connRender();refreshSocial();
+}
+function connRandom(){const rec=load("cg-recent-connections")||[];let p;for(let i=0;i<20;i++){p=connBuild(rng(hash("connr|"+Math.random())),new Set(rec));if(p)break;}
+  if(!p)p=connBuild(rng(hash("connr|"+Math.random())),null);save("cg-recent-connections",rec.concat(p.ids).slice(-120));S=connState(p,today(),true);save(skey(),S);connRender();}
+const CEMO=["🟨","🟩","🟦","🟪"];
+const cgroupOf=t=>S.puz.groups.findIndex(g=>g.includes(t));
+function connTile(t){const c=BY[t];return `<button type="button" class="ctile${S.sel.includes(t)?" sel":""}" data-ct="${esc(t)}">${c?`<img src="${icon(c)}" alt="">`:""}<span>${esc(t)}</span></button>`;}
+const cgrpHtml=(g,rev)=>`<div class="cgrp c${S.puz.cols[g]}${rev?" rev":""}"><b>${esc(S.puz.names[g])}</b><span>${S.puz.groups[g].map(esc).join(", ")}</span></div>`;
+function connRender(msg){
+  const left=4-S.mistakes,rest=S.order.filter(t=>!S.solved.includes(cgroupOf(t)));
+  let h=`<div class="card"><h2>${S.random?"Random board":"Today's Connections"}</h2><p class="hint">Find four groups of four. Groups go from 🟨 easiest to 🟪 trickiest, and a tile only belongs to one group.</p>`;
+  h+=S.solved.map(g=>cgrpHtml(g,false)).join("");
+  if(S.done&&S.lost)h+=[0,1,2,3].filter(g=>!S.solved.includes(g)).map(g=>cgrpHtml(g,true)).join("");
+  if(!S.done){
+    h+=`<div class="cgrid">${rest.map(connTile).join("")}</div><p class="cmsg" id="cMsg">${msg?esc(msg):""}</p>`;
+    h+=`<div class="cmis">Mistakes left: ${[0,1,2,3].map(i=>`<i class="${i<left?"":"u"}"></i>`).join("")}</div>`;
+    h+=`<div class="btns"><button class="btn" id="cShuf" type="button">Shuffle</button><button class="btn" id="cClr" type="button"${S.sel.length?"":" disabled"}>Deselect all</button><button class="btn pri" id="cSub" type="button"${S.sel.length===4?"":" disabled"}>Submit</button></div>`;
+  }
+  h+=`</div>`;
+  if(S.done){const pts=S.lost?0:score("connections",S.mistakes+1);
+    h+=`<div class="card win"><h2>${S.lost?"Out of mistakes":"Solved!"}</h2><p class="wsub">${S.lost?`Found ${S.solved.length} of 4 groups`:`${S.mistakes} mistake${S.mistakes===1?"":"s"}`}</p><p class="pts">+${pts} points${S.random?" (random rounds don't count)":""}</p><p class="place" id="wPlace"></p>
+    <div class="btns"><button class="btn pri" id="shareB" type="button">Copy result</button><button class="btn" id="randB" type="button">Play a random one</button>${nextMode()?`<button class="btn" id="nextB" type="button">Next: ${nextMode()[1]}</button>`:""}</div><textarea class="share" id="shareT" rows="6" readonly aria-label="Result to share"></textarea></div>`;}
+  $("game").innerHTML=h;
+  $("sub").textContent=S.random?"Random round: not today's board":"Group League things that have something in common";
+  if(!S.done){
+    document.querySelectorAll("[data-ct]").forEach(b=>b.onclick=()=>{const t=b.dataset.ct,i=S.sel.indexOf(t);if(i>=0)S.sel.splice(i,1);else if(S.sel.length<4)S.sel.push(t);save(skey(),S);connRender();});
+    $("cShuf").onclick=()=>{const fixed=S.order.filter(t=>S.solved.includes(cgroupOf(t))),r=rest.slice();for(let i=r.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[r[i],r[j]]=[r[j],r[i]];}S.order=fixed.concat(r);save(skey(),S);connRender();};
+    $("cClr").onclick=()=>{S.sel=[];save(skey(),S);connRender();};
+    $("cSub").onclick=connSubmit;
+  }else{
+    $("shareB").onclick=share;$("randB").onclick=randomRound;const nb=$("nextB");if(nb)nb.onclick=()=>{mode=nextMode()[0];start();};
+    if(!S.random&&SESSION&&scopeId())setTimeout(async()=>{try{const r=await api(`/live?mode=connections&scope=channel&id=${scopeId()}&day=${S.day}`);const d=(r.rows||[]).filter(x=>x.done),i=ME?d.findIndex(x=>x.id===ME.id):-1,el=$("wPlace");
+      if(el&&i>=0)el.innerHTML=`${["🥇","🥈","🥉"][i]||"#"+(i+1)} <b>${i+1}${["st","nd","rd"][i]||"th"} place</b> in this channel today${d.length>1?` (of ${d.length} so far)`:""}`;}catch(_){}},700);
+  }
+}
+function connSubmit(){
+  if(S.sel.length!==4||S.done)return;
+  const key=S.sel.slice().sort().join("|");
+  if(S.guesses.some(g=>g.slice().sort().join("|")===key))return connRender("Already guessed!");
+  S.guesses.push(S.sel.slice());
+  const counts=[0,1,2,3].map(g=>S.sel.filter(t=>cgroupOf(t)===g).length),hit=counts.indexOf(4);let msg="";
+  if(hit>=0){S.solved.push(hit);S.sel=[];}
+  else{S.mistakes++;msg=Math.max(...counts)===3?"One away…":"";document.querySelectorAll(".ctile.sel").forEach(b=>b.classList.add("shake"));}
+  if(S.solved.length===4)S.done=true;
+  if(S.mistakes>=4){S.done=true;S.lost=true;S.sel=[];}
+  if(S.done&&!S.random)S.finished=Date.now();
+  save(skey(),S);renderNav();
+  setTimeout(()=>{connRender(msg);if(S.done)window.scrollTo({top:0,behavior:"smooth"});},hit>=0||S.done?0:380);
+  if(!S.random){pushProgress();setTimeout(refreshSocial,400);}
+}
 // ---------- social panel ----------
 async function api(path,opts={},retry=true){const r=await fetch(API+path,{...opts,headers:{"Content-Type":"application/json",...(SESSION?{Authorization:"Bearer "+SESSION}:{}),...(opts.headers||{})}});
   // A saved login that the server no longer accepts: sign in again once.
@@ -816,8 +931,8 @@ async function api(path,opts={},retry=true){const r=await fetch(API+path,{...opt
   return r.json();}
 // Send every one of today's puzzles to the server (also ones played before signing in worked).
 function syncAll(){if(!API||!SESSION)return;for(const [m] of MODES){const st=load("cg-"+m);if(!st||st.random||st.day!==today()||!st.guesses||!st.guesses.length)continue;
-  api("/progress",{method:"POST",body:JSON.stringify({mode:m,day:st.day,guesses:st.guesses.length,done:st.done,started:st.started,finished:st.finished||null,helps:st.helps||[],bonus:st.bonus==null?null:st.bonus,channel:CTX.channel,guild:CTX.guild})}).then(r=>gotElo(m,st,r)).catch(()=>{});}}
-function pushProgress(){if(!API||!SESSION||!S||S.random)return;api("/progress",{method:"POST",body:JSON.stringify({mode,day:S.day,guesses:S.guesses.length,done:S.done,started:S.started,finished:S.finished||null,helps:S.helps||[],bonus:S.bonus==null?null:S.bonus,channel:CTX.channel,guild:CTX.guild})}).then(r=>{if(S&&!S.random)gotElo(mode,S,r);}).catch(()=>{});}
+  api("/progress",{method:"POST",body:JSON.stringify({mode:m,day:st.day,...pg(m,st),started:st.started,finished:st.finished||null,helps:st.helps||[],bonus:st.bonus==null?null:st.bonus,channel:CTX.channel,guild:CTX.guild})}).then(r=>gotElo(m,st,r)).catch(()=>{});}}
+function pushProgress(){if(!API||!SESSION||!S||S.random)return;api("/progress",{method:"POST",body:JSON.stringify({mode,day:S.day,...pg(mode,S),started:S.started,finished:S.finished||null,helps:S.helps||[],bonus:S.bonus==null?null:S.bonus,channel:CTX.channel,guild:CTX.guild})}).then(r=>{if(S&&!S.random)gotElo(mode,S,r);}).catch(()=>{});}
 // Ranked: Elo shown as League ranks. 1000 = Gold II, 100 Elo per tier, 25 per division, 1 Elo = 4 LP.
 const TIERS=[["Iron","#7d6a63"],["Bronze","#b0714f"],["Silver","#a3adb8"],["Gold","#c8aa6e"],["Platinum","#3fb1a6"],["Emerald","#2fb36b"],["Diamond","#7894ee"],["Master","#b066e0"],["Grandmaster","#e05252"],["Challenger","#f2cb63"]];
 function rankOf(elo){const t=Math.max(0,Math.min(9,Math.floor((elo-650)/100)));
