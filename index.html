@@ -111,17 +111,30 @@ nav button .ok{color:var(--green);font-size:13px}
 .ovtb{border-collapse:collapse;width:100%;font-size:13px}.ovtb th,.ovtb td{padding:7px 9px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
 .ovtb th{position:sticky;top:0;background:var(--panel2);font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);cursor:pointer;white-space:nowrap;user-select:none}.ovtb th.on{color:var(--gold)}
 .ovnm{white-space:nowrap;font-weight:700;position:sticky;left:0;background:var(--panel);z-index:1}.ovtb th:first-child{left:0;z-index:2}.ovnm img{width:26px;height:26px;border-radius:6px;vertical-align:middle;margin-right:8px}
-.hhead{text-align:left;display:grid;grid-template-columns:1fr auto;gap:10px 14px;align-items:center}.hhead h2{margin:0 0 4px;text-align:left}.hhead .hint{margin:0;text-align:left}
-.hpts{text-align:right}.hpts b{display:block;font-size:30px;color:var(--gold);line-height:1}.hpts small{color:var(--muted);font-size:12px}
-.hbar{grid-column:1/-1;height:6px;background:var(--panel2);border-radius:99px;overflow:hidden}.hbar i{display:block;height:100%;background:var(--gold);border-radius:99px;transition:width .4s}
-.hgo{grid-column:1/-1;justify-self:start}
-.hgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px;margin-bottom:14px}
-.hcard{display:flex;gap:12px;align-items:flex-start;text-align:left;font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px;cursor:pointer;transition:border-color .15s,transform .15s}
-.hcard:hover{border-color:var(--gold);transform:translateY(-1px)}.he .emo,.he img{width:30px;height:30px}.he{font-size:28px;line-height:1}
-.ht{display:flex;flex-direction:column;gap:3px;min-width:0}.ht b{font-size:16px}.ht small{color:var(--muted);font-size:12.5px;line-height:1.35}
-.ht em{font-style:normal;font-size:12px;font-weight:700;color:var(--muted);margin-top:4px}.hcard.ok em{color:var(--green)}.hcard.go em{color:var(--gold)}.hcard.ok{border-color:color-mix(in srgb,var(--green) 45%,var(--line))}
-#modes [data-home]{padding-left:12px;padding-right:12px}
-@media(max-width:560px){.hgrid{grid-template-columns:1fr 1fr;gap:8px}.hcard{flex-direction:column;gap:6px;padding:12px}.ht small{display:none}.h2 .ht small{display:block}}
+body.homev #modes,body.homev #sub{display:none}body.homev .logo .lt{--s:clamp(34px,10vw,58px)}body.homev .logo{margin:18px 0 22px}
+.hero{display:flex;align-items:center;gap:24px;padding:22px;margin-bottom:22px;border-radius:calc(var(--r) + 4px);border:1px solid color-mix(in srgb,var(--gold) 35%,var(--line));
+  background:radial-gradient(120% 140% at 0% 0%,color-mix(in srgb,var(--gold) 16%,transparent),transparent 60%),radial-gradient(120% 140% at 100% 100%,color-mix(in srgb,#0ac8b9 14%,transparent),transparent 60%),var(--panel)}
+.hring-w{position:relative;width:120px;height:120px;flex:none}.hring{width:100%;height:100%;transform:rotate(-90deg)}
+.hring circle{fill:none;stroke-width:9}.hring .rb{stroke:var(--panel2)}.hring .rf{stroke:var(--gold);stroke-linecap:round;transition:stroke-dashoffset .8s ease}
+.hring-t{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}.hring-t b{font-size:32px;line-height:1}.hring-t b small{font-size:16px;color:var(--muted)}.hring-t span{font-size:12px;color:var(--muted);margin-top:2px}
+.hero-t{min-width:0;text-align:left}.hhi{margin:0;color:var(--gold);font-weight:700;font-size:14px}.hero-t h2{margin:4px 0 8px;font-size:clamp(20px,4vw,26px);text-align:left}
+.hmeta{display:flex;flex-wrap:wrap;gap:6px 16px;margin:0 0 14px;color:var(--muted);font-size:13.5px}.hmeta b{color:var(--ink)}
+.hplay{font-size:16px;padding:12px 22px;display:inline-flex;align-items:center;gap:8px}.hplay .emo{width:20px;height:20px}
+.hsec{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 2px 10px;text-align:left}
+.htiles{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:22px}
+.htile{display:flex;flex-direction:column;align-items:center;gap:6px;font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:16px 6px 12px;cursor:pointer;transition:transform .15s,border-color .15s}
+.htile:hover{transform:translateY(-2px);border-color:var(--gold)}.htile b{font-size:14px}.htile small{font-size:11.5px;font-weight:700;color:var(--muted)}
+.hic{position:relative;display:grid;place-items:center;width:58px;height:58px;border-radius:16px;background:linear-gradient(160deg,var(--panel2),color-mix(in srgb,var(--gold) 12%,var(--panel2)));border:1px solid var(--line)}.hic .emo{width:32px;height:32px}
+.htile.ok .hic{border-color:color-mix(in srgb,var(--green) 60%,var(--line))}.htile.ok small{color:var(--green)}.htile.go small{color:var(--gold)}.htile.ok,.htile.gu{opacity:.85}
+.hck{position:absolute;right:-6px;top:-6px;width:20px;height:20px;border-radius:50%;background:var(--green);color:#06210f;font-style:normal;font-size:12px;font-weight:900;display:grid;place-items:center;border:2px solid var(--panel)}
+.hdot{position:absolute;right:-3px;top:-3px;width:12px;height:12px;border-radius:50%;background:var(--gold);border:2px solid var(--panel)}
+.hmore{display:grid;grid-template-columns:2fr 1fr;gap:10px;margin-bottom:18px}
+.hvs,.hinfo{display:flex;align-items:center;gap:14px;text-align:left;font:inherit;color:var(--ink);border:1px solid var(--line);border-radius:18px;padding:14px 16px;cursor:pointer;transition:transform .15s,border-color .15s;background:var(--panel)}
+.hvs{background:linear-gradient(110deg,color-mix(in srgb,#e84057 22%,var(--panel)),var(--panel) 70%);border-color:color-mix(in srgb,#e84057 40%,var(--line))}
+.hvs:hover,.hinfo:hover{transform:translateY(-2px);border-color:var(--gold)}.hvs>span:nth-child(2),.hinfo>span:nth-child(2){display:flex;flex-direction:column;gap:3px;min-width:0;flex:1}
+.hvs b,.hinfo b{font-size:16px}.hvs small,.hinfo small{color:var(--muted);font-size:12.5px}.hvs em{font-style:normal;font-weight:800;color:var(--gold);white-space:nowrap;font-size:14px}
+@media(max-width:640px){.htiles{grid-template-columns:repeat(3,1fr)}.hmore{grid-template-columns:1fr}.hero{gap:16px;padding:16px}.hring-w{width:92px;height:92px}.hring-t b{font-size:24px}}
+@media(max-width:400px){.hero{flex-direction:column;text-align:center}.hero-t,.hero-t h2{text-align:center}.hmeta{justify-content:center}}
 .vsres{text-align:center}.vsscore{font-size:16px;margin:4px 0 10px}.vst2 tr.me td{color:var(--gold)}.vst2 th{font-weight:600}.vst2 small{color:var(--mut,#8a8f98);font-size:11px}.vst2{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px}.vst2 td,.vst2 th{padding:7px 6px;border-bottom:1px solid var(--line)}.vst2 td:first-child{text-align:left}.vst2 small{color:var(--muted);margin-left:4px}.vst2 .x{color:var(--muted)}
 .place{margin-top:6px;font-size:15px}.place:empty{display:none}
 .voice{margin-top:10px}.voice .btn{font-size:14px;padding:8px 14px}
@@ -513,7 +526,7 @@ function dailyPick(m,day){
 function pick(m,seedStr){const P=pool(m);const r=rng(hash(m+"|"+seedStr));return {target:P[Math.floor(r()*P.length)].name,r1:r(),r2:r(),r3:r()};}
 const skey=()=>S&&S.vs?"cg-vs-round":(S&&S.random?"cg-r-":"cg-")+mode;
 function start(){
-  HOME=false;
+  HOME=false;document.body.classList.remove("homev");
   if(!MODES.some(x=>x[0]===mode))mode="classic";
   if(mode==="quote"&&!QUOTES){$("game").innerHTML=`<p class="msg">Loading quotes…</p>`;renderNav();loadQuotes().then(start).catch(()=>{QUOTES={};start();});return;}
   if(mode==="item"&&!ITEMS){$("game").innerHTML=`<p class="msg">Loading items…</p>`;renderNav();loadItems().then(start).catch(()=>{$("game").innerHTML=`<p class="msg">Couldn't load the item list from Riot. Reload to try again.</p>`;});return;}
@@ -537,19 +550,27 @@ function modeStatus(m){const st=load("cg-"+m);if(!st||st.random||st.day!==today(
   const p=score(m,n,st.helps)+((m==="ability"||m==="splash")&&st.bonus===1?20:0);return {k:"ok",t:`✓ ${n} guess${n===1?"":"es"} · ${p} pts`,p};}
 function untilReset(){const d=new Date(),n=new Date(d);n.setHours(24,0,0,0);const m=Math.round((n-d)/60000);return `${Math.floor(m/60)}h ${m%60}m`;}
 function home(){
-  if(VS)vsExit();HOME=true;S=null;closeInfo();save("cg-mode",mode);
-  const sts=MODES.map(([k])=>modeStatus(k)),done=sts.filter(x=>x.k==="ok"||x.k==="gu").length,pts=sts.reduce((a,x)=>a+(x.p||0),0);
-  const nxt=MODES.find((m,i)=>sts[i].k==="go")||MODES.find((m,i)=>sts[i].k==="new");
-  $("sub").textContent="Daily League of Legends guessing games";
-  $("game").innerHTML=`<div class="card hhead"><div><h2>Today's puzzles</h2><p class="hint">${done===MODES.length?"All done for today! New puzzles in "+untilReset()+".":`${done} of ${MODES.length} done · new puzzles in ${untilReset()}`}</p></div><div class="hpts"><b>${pts}</b><small>points today</small></div>
-    <div class="hbar"><i style="width:${done/MODES.length*100}%"></i></div>${nxt?`<button type="button" class="btn pri hgo" data-hm="${nxt[0]}">${sts[MODES.indexOf(nxt)].k==="go"?"Continue":"Play"} ${nxt[1]}</button>`:""}</div>
-  <div class="hgrid">${MODES.map(([k,l,e],i)=>`<button type="button" class="hcard ${sts[i].k}" data-hm="${k}"><span class="he">${emo(e)}</span><span class="ht"><b>${l}</b><small>${MODE_DESC[k]}</small><em>${sts[i].t}</em></span></button>`).join("")}</div>
-  <div class="hgrid h2">
-    <button type="button" class="hcard" id="hVs"><span class="he">${emo("⚔️")}</span><span class="ht"><b>Versus</b><small>Race 2–8 friends live through one round of every mode</small><em>${IN_DISCORD?"Play in this channel":"Open in Discord to play"}</em></span></button>
-    <button type="button" class="hcard" id="hInfo"><span class="he">${emo("📖")}</span><span class="ht"><b>Info</b><small>Browse champion and item data</small><em>${dailyDone("classic")?"Champions ✓":"Champions 🔒 Classic"} · ${dailyDone("item")?"Items ✓":"Items 🔒 Item"}</em></span></button>
+  if(VS)vsExit();HOME=true;S=null;closeInfo();save("cg-mode",mode);document.body.classList.add("homev");
+  const sts=MODES.map(([k])=>modeStatus(k)),done=sts.filter(x=>x.k==="ok"||x.k==="gu").length,pts=sts.reduce((a,x)=>a+(x.p||0),0),N=MODES.length;
+  const nx=MODES.findIndex((m,i)=>sts[i].k==="go"),nn=nx>=0?nx:MODES.findIndex((m,i)=>sts[i].k==="new"),nxt=MODES[nn];
+  const hr=new Date().getHours(),hi=hr<5?"Late night grind":hr<12?"Good morning":hr<18?"Good afternoon":"Good evening",nm=ME&&ME.name?`, ${esc(ME.name)}`:"";
+  const C=2*Math.PI*42,ring=`<svg viewBox="0 0 100 100" class="hring" aria-hidden="true"><circle cx="50" cy="50" r="42" class="rb"/><circle cx="50" cy="50" r="42" class="rf" stroke-dasharray="${C}" stroke-dashoffset="${C*(1-done/N)}"/></svg>`;
+  $("sub").textContent="";
+  $("game").innerHTML=`<section class="hero">
+    <div class="hring-w">${ring}<div class="hring-t"><b>${done}<small>/${N}</small></b><span>done</span></div></div>
+    <div class="hero-t"><p class="hhi">${hi}${nm}</p><h2>${done===N?"You cleared every puzzle today!":done?"Keep the run going":"Today's puzzles are ready"}</h2>
+      <p class="hmeta"><span><b>${pts}</b> pts today</span><span>New puzzles in <b>${untilReset()}</b></span></p>
+      ${nxt?`<button type="button" class="btn pri hplay" data-hm="${nxt[0]}">${emo(nxt[2])} ${sts[nn].k==="go"?"Continue":"Play"} ${nxt[1]}</button>`:`<button type="button" class="btn pri hplay" id="hVs2">${emo("⚔️")} Challenge friends in Versus</button>`}</div>
+  </section>
+  <h3 class="hsec">Daily modes</h3>
+  <div class="htiles">${MODES.map(([k,l,e],i)=>`<button type="button" class="htile ${sts[i].k}" data-hm="${k}" title="${esc(MODE_DESC[k])}"><span class="hic">${emo(e)}${sts[i].k==="ok"?'<i class="hck">✓</i>':sts[i].k==="go"?'<i class="hdot"></i>':""}</span><b>${l}</b><small>${sts[i].k==="ok"?sts[i].p+" pts":sts[i].k==="go"?"In progress":sts[i].k==="gu"?"Gave up":"Play"}</small></button>`).join("")}</div>
+  <h3 class="hsec">More</h3>
+  <div class="hmore">
+    <button type="button" class="hvs" id="hVs"><span class="hic">${emo("⚔️")}</span><span><b>Versus</b><small>Race 2–8 friends live through one round of every mode</small></span><em>${IN_DISCORD?"Play":"Discord only"} →</em></button>
+    <button type="button" class="hinfo" id="hInfo"><span class="hic">${emo("📖")}</span><span><b>Info</b><small>${dailyDone("classic")?"Champions ✓":"Champions 🔒"} · ${dailyDone("item")?"Items ✓":"Items 🔒"}</small></span></button>
   </div>`;
   $("game").querySelectorAll("[data-hm]").forEach(b=>b.onclick=()=>{mode=b.dataset.hm;start();});
-  $("hVs").onclick=()=>{HOME=false;vsLobby();};
+  const vs=()=>{HOME=false;document.body.classList.remove("homev");vsLobby();};$("hVs").onclick=vs;const v2=$("hVs2");if(v2)v2.onclick=vs;
   $("hInfo").onclick=()=>openInfo(dailyDone("classic")||!dailyDone("item")?"champ":"item");
   renderNav();refreshSocial();window.scrollTo(0,0);
 }
