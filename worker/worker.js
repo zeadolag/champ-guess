@@ -9,7 +9,7 @@
 //   DISCORD_BOT_TOKEN      (secret)  Developer Portal → Bot → Reset Token
 // plus a Cron Trigger (e.g. "5 23 * * *") for the daily recap.
 
-const MODES = new Set(["classic", "ability", "splash", "quote", "emoji", "item", "connections"]);
+const MODES = new Set(["classic", "ability", "splash", "quote", "emoji", "item"]);
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 // Scoring: 100 for finishing, minus 10 per wrong guess (never below 10).
 // In Ability mode, turning off grayscale or rotation each costs 20% of that,
@@ -45,6 +45,7 @@ export default {
       if (path === "/vs/join" && req.method === "POST") return await vsJoin(req, env);
       if (path === "/vs/progress" && req.method === "POST") return await vsProgress(req, env);
       if (path === "/vs/leave" && req.method === "POST") return await vsLeave(req, env);
+      if (path === "/vs/start" && req.method === "POST") return await vsStart(req, env);
       if (path === "/vs/state" && req.method === "GET") return await vsState(url, env);
       if (path === "/vs/open" && req.method === "GET") return await vsOpen(url, env);
       if (path === "/vs/board" && req.method === "GET") return await vsBoard(url, env);
@@ -204,7 +205,7 @@ function addDays(day, n) {
 // higher-rated players are expected to beat it by more. Everyone starts at 1000 (Gold II).
 // LP is only settled after midnight, once everyone's results for the day are in, so playing
 // early or late makes no difference. Until then the game shows an estimate.
-const ELO_START = 1000, PRIOR = { classic: 6, ability: 5, splash: 5, quote: 4, emoji: 4, item: 6, connections: 2 };
+const ELO_START = 1000, PRIOR = { classic: 6, ability: 5, splash: 5, quote: 4, emoji: 4, item: 6 };
 async function puzzleAvg(env, mode, day, uid) {
   const a = await env.DB.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(guesses), 0) AS s FROM plays WHERE mode = ?1 AND day = ?2 AND done = 1 AND user_id != ?3").bind(mode, day, uid).first();
   return (PRIOR[mode] * 3 + a.s) / (3 + a.n);
@@ -259,37 +260,67 @@ function rankName(elo) {
   return TIERS[t] + " " + ["IV", "III", "II", "I"][div];
 }
 
-// ================= VS mode (live 1v1) =================
-// Two players race through one random puzzle per mode. Each round lasts VS_DUR; it ends early once both
-// have solved it. Points per round = guess score x speed (100% if instant, 50% at the buzzer); unsolved = 0.
-// The higher total wins; each server keeps its own VS Elo (separate from the daily ranked ladder).
-const VS_ROUNDS = ["classic", "ability", "splash", "quote", "emoji", "item"], VS_DUR = 90000, VS_GAP = 5000;
+// ================= VS mode (live, 2–8 players) =================
+// Players race through one random puzzle per mode. Each round lasts VS_DUR; it ends early once everyone
+// has solved it. Points per round = guess score x speed (100% if instant, 50% at the buzzer); unsolved = 0.
+// The host starts the match once at least 2 players are in. Each server keeps its own VS Elo: every pair of
+// players counts as one head-to-head result, scaled so a match is worth about the same as a 1v1.
+const VS_ROUNDS = ["classic", "ability", "splash", "quote", "emoji", "item"], VS_DUR = 90000, VS_GAP = 6000, VS_MAX = 8;
 const vsId = () => [...crypto.getRandomValues(new Uint8Array(6))].map(b => "abcdefghjkmnpqrstuvwxyz23456789"[b % 31]).join("");
 const changed = r => !r || !r.meta || r.meta.changes == null || r.meta.changes > 0;
+// Player list per match. Created on first use, so no manual SQL step is needed.
+let VSP_READY = false;
+async function vsp(env) {
+  if (VSP_READY) return;
+  await env.DB.prepare("CREATE TABLE IF NOT EXISTS vs_players (match_id TEXT NOT NULL, user_id TEXT NOT NULL, joined_at INTEGER NOT NULL, delta REAL, PRIMARY KEY (match_id, user_id))").run();
+  VSP_READY = true;
+}
+async function vsPlayerIds(env, id) {
+  const { results } = await env.DB.prepare("SELECT user_id FROM vs_players WHERE match_id = ?1 ORDER BY joined_at").bind(id).all();
+  return results.map(r => r.user_id);
+}
 async function vsCreate(req, env) {
   const uid = await auth(req, env); if (!uid) return json({ error: "not logged in" }, 401);
+  await vsp(env);
   const b = await req.json();
-  const id = vsId(), seed = crypto.getRandomValues(new Uint32Array(1))[0];
+  const id = vsId(), seed = crypto.getRandomValues(new Uint32Array(1))[0], now = Date.now();
   await env.DB.prepare("INSERT INTO vs_matches (id, host, channel_id, guild_id, seed, status, created_at) VALUES (?1, ?2, ?3, ?4, ?5, 'waiting', ?6)")
-    .bind(id, uid, str(b.channel), str(b.guild), seed, Date.now()).run();
+    .bind(id, uid, str(b.channel), str(b.guild), seed, now).run();
+  await env.DB.prepare("INSERT OR IGNORE INTO vs_players (match_id, user_id, joined_at) VALUES (?1, ?2, ?3)").bind(id, uid, now).run();
   return json({ id });
 }
 async function vsJoin(req, env) {
   const uid = await auth(req, env); if (!uid) return json({ error: "not logged in" }, 401);
+  await vsp(env);
   const { id } = await req.json();
   const m = await env.DB.prepare("SELECT * FROM vs_matches WHERE id = ?1").bind(String(id || "")).first();
   if (!m) return json({ error: "match not found" }, 404);
-  if (m.host === uid || m.guest === uid) return json({ ok: true });
+  const ids = await vsPlayerIds(env, m.id);
+  if (ids.includes(uid)) return json({ ok: true });
   if (m.status !== "waiting") return json({ error: "match already started" }, 409);
-  const r = await env.DB.prepare("UPDATE vs_matches SET guest = ?1, status = 'playing', round = 0, round_started = ?2 WHERE id = ?3 AND status = 'waiting'")
-    .bind(uid, Date.now() + VS_GAP, m.id).run();
-  return changed(r) ? json({ ok: true }) : json({ error: "match already started" }, 409);
+  if (ids.length >= VS_MAX) return json({ error: "match is full" }, 409);
+  await env.DB.prepare("INSERT OR IGNORE INTO vs_players (match_id, user_id, joined_at) VALUES (?1, ?2, ?3)").bind(m.id, uid, Date.now()).run();
+  return json({ ok: true });
+}
+async function vsStart(req, env) {
+  const uid = await auth(req, env); if (!uid) return json({ error: "not logged in" }, 401);
+  await vsp(env);
+  const { id } = await req.json();
+  const m = await env.DB.prepare("SELECT * FROM vs_matches WHERE id = ?1").bind(String(id || "")).first();
+  if (!m || m.host !== uid) return json({ error: "only the host can start" }, 403);
+  if ((await vsPlayerIds(env, m.id)).length < 2) return json({ error: "need at least 2 players" }, 409);
+  await env.DB.prepare("UPDATE vs_matches SET status = 'playing', round = 0, round_started = ?1 WHERE id = ?2 AND status = 'waiting'").bind(Date.now() + VS_GAP, m.id).run();
+  return json({ ok: true });
 }
 async function vsLeave(req, env) {
   const uid = await auth(req, env); if (!uid) return json({ error: "not logged in" }, 401);
+  await vsp(env);
   const { id } = await req.json();
   const m = await env.DB.prepare("SELECT * FROM vs_matches WHERE id = ?1").bind(String(id || "")).first();
-  if (m && m.status === "waiting" && m.host === uid) await env.DB.prepare("UPDATE vs_matches SET status = 'cancelled' WHERE id = ?1").bind(m.id).run();
+  if (m && m.status === "waiting") {
+    if (m.host === uid) await env.DB.prepare("UPDATE vs_matches SET status = 'cancelled' WHERE id = ?1").bind(m.id).run();
+    else await env.DB.prepare("DELETE FROM vs_players WHERE match_id = ?1 AND user_id = ?2").bind(m.id, uid).run();
+  }
   return json({ ok: true });
 }
 function vsPoints(guesses, ms) {
@@ -298,9 +329,10 @@ function vsPoints(guesses, ms) {
 }
 async function vsProgress(req, env) {
   const uid = await auth(req, env); if (!uid) return json({ error: "not logged in" }, 401);
+  await vsp(env);
   const b = await req.json();
   const m = await env.DB.prepare("SELECT * FROM vs_matches WHERE id = ?1").bind(String(b.id || "")).first();
-  if (!m || (m.host !== uid && m.guest !== uid)) return json({ error: "not in this match" }, 403);
+  if (!m || !(await vsPlayerIds(env, m.id)).includes(uid)) return json({ error: "not in this match" }, 403);
   const now = Date.now();
   if (m.status !== "playing" || b.round !== m.round || now < m.round_started || now > m.round_started + VS_DUR + 2000) return json({ ok: false });
   const guesses = clampInt(b.guesses, 0, 200), done = b.done ? 1 : 0;
@@ -316,15 +348,16 @@ async function vsProgress(req, env) {
   await vsTick(env, m.id);
   return json({ ok: true, points });
 }
-// Moves the match forward when a round is over (both solved, or time ran out). Safe to call from both players at once.
+// Moves the match forward when a round is over (everyone solved, or time ran out). Safe to call from several players at once.
 async function vsTick(env, id) {
   const m = await env.DB.prepare("SELECT * FROM vs_matches WHERE id = ?1").bind(id).first();
   if (!m) return null;
   const now = Date.now();
   if (m.status === "waiting" && now - m.created_at > 15 * 60e3) { await env.DB.prepare("UPDATE vs_matches SET status = 'cancelled' WHERE id = ?1 AND status = 'waiting'").bind(id).run(); return null; }
   if (m.status !== "playing" || now < m.round_started) return m;
+  const n = (await vsPlayerIds(env, id)).length;
   const d = await env.DB.prepare("SELECT COUNT(*) AS n FROM vs_progress WHERE match_id = ?1 AND round = ?2 AND done = 1").bind(id, m.round).first();
-  if (d.n < 2 && now < m.round_started + VS_DUR) return m;
+  if (d.n < n && now < m.round_started + VS_DUR) return m;
   if (m.round + 1 >= VS_ROUNDS.length) {
     const r = await env.DB.prepare("UPDATE vs_matches SET status = 'done' WHERE id = ?1 AND status = 'playing' AND round = ?2").bind(id, m.round).run();
     if (changed(r)) await vsSettle(env, id);
@@ -335,40 +368,58 @@ async function vsTick(env, id) {
 }
 async function vsSettle(env, id) {
   const m = await env.DB.prepare("SELECT * FROM vs_matches WHERE id = ?1").bind(id).first();
-  if (!m || !m.guest || m.host_delta != null) return;
-  const tot = async u => (await env.DB.prepare("SELECT COALESCE(SUM(points), 0) AS p FROM vs_progress WHERE match_id = ?1 AND user_id = ?2").bind(id, u).first()).p;
-  const ph = await tot(m.host), pg = await tot(m.guest);
+  if (!m || m.host_delta != null) return;
+  const ids = await vsPlayerIds(env, id);
+  if (ids.length < 2) return;
   const scope = m.guild_id || m.channel_id || "global";
-  const get = async u => (await env.DB.prepare("SELECT elo FROM vs_ratings WHERE scope_id = ?1 AND user_id = ?2").bind(scope, u).first()) || { elo: 1000 };
-  const rh = (await get(m.host)).elo, rg = (await get(m.guest)).elo;
-  const sh = ph > pg ? 1 : ph < pg ? 0 : 0.5, eh = 1 / (1 + Math.pow(10, (rg - rh) / 400));
-  const dh = 20 * (sh - eh), dg = -dh;
-  const upd = (u, elo, res) => env.DB.prepare(
-    `INSERT INTO vs_ratings (scope_id, user_id, elo, wins, losses, draws) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-     ON CONFLICT(scope_id, user_id) DO UPDATE SET elo = ?3, wins = vs_ratings.wins + ?4, losses = vs_ratings.losses + ?5, draws = vs_ratings.draws + ?6`
-  ).bind(scope, u, elo, res === 1 ? 1 : 0, res === 0 ? 1 : 0, res === 0.5 ? 1 : 0).run();
-  await upd(m.host, rh + dh, sh); await upd(m.guest, rg + dg, 1 - sh);
-  await env.DB.prepare("UPDATE vs_matches SET host_delta = ?1, guest_delta = ?2 WHERE id = ?3").bind(dh, dg, id).run();
+  const P = [];
+  for (const u of ids) {
+    const pts = (await env.DB.prepare("SELECT COALESCE(SUM(points), 0) AS p FROM vs_progress WHERE match_id = ?1 AND user_id = ?2").bind(id, u).first()).p;
+    const elo = ((await env.DB.prepare("SELECT elo FROM vs_ratings WHERE scope_id = ?1 AND user_id = ?2").bind(scope, u).first()) || { elo: 1000 }).elo;
+    P.push({ u, pts, elo, d: 0 });
+  }
+  const K = 20 / (P.length - 1);
+  for (let i = 0; i < P.length; i++) for (let j = i + 1; j < P.length; j++) {
+    const a = P[i], b = P[j], s = a.pts > b.pts ? 1 : a.pts < b.pts ? 0 : 0.5, e = 1 / (1 + Math.pow(10, (b.elo - a.elo) / 400));
+    a.d += K * (s - e); b.d -= K * (s - e);
+  }
+  const top = Math.max(...P.map(p => p.pts)), tops = P.filter(p => p.pts === top).length;
+  for (const p of P) {
+    const res = p.pts === top ? (tops > 1 ? 0.5 : 1) : 0;
+    await env.DB.prepare(
+      `INSERT INTO vs_ratings (scope_id, user_id, elo, wins, losses, draws) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+       ON CONFLICT(scope_id, user_id) DO UPDATE SET elo = ?3, wins = vs_ratings.wins + ?4, losses = vs_ratings.losses + ?5, draws = vs_ratings.draws + ?6`
+    ).bind(scope, p.u, p.elo + p.d, res === 1 ? 1 : 0, res === 0 ? 1 : 0, res === 0.5 ? 1 : 0).run();
+    await env.DB.prepare("UPDATE vs_players SET delta = ?1 WHERE match_id = ?2 AND user_id = ?3").bind(p.d, id, p.u).run();
+  }
+  await env.DB.prepare("UPDATE vs_matches SET host_delta = 0 WHERE id = ?1").bind(id).run();
 }
 async function vsState(url, env) {
+  await vsp(env);
   const id = String(url.searchParams.get("id") || "");
   await vsTick(env, id);
   const m = await env.DB.prepare("SELECT * FROM vs_matches WHERE id = ?1").bind(id).first();
   if (!m) return json({ error: "match not found" }, 404);
-  const { results: users } = await env.DB.prepare("SELECT id, name, avatar FROM users WHERE id IN (?1, ?2)").bind(m.host, m.guest || "-").all();
+  const { results: players } = await env.DB.prepare(
+    "SELECT p.user_id AS id, p.delta, u.name, u.avatar FROM vs_players p LEFT JOIN users u ON u.id = p.user_id WHERE p.match_id = ?1 ORDER BY p.joined_at"
+  ).bind(id).all();
   const { results: progress } = await env.DB.prepare("SELECT user_id, round, guesses, done, points FROM vs_progress WHERE match_id = ?1").bind(id).all();
   const scope = m.guild_id || m.channel_id || "global";
-  const { results: ratings } = await env.DB.prepare("SELECT user_id, elo FROM vs_ratings WHERE scope_id = ?1 AND user_id IN (?2, ?3)").bind(scope, m.host, m.guest || "-").all();
-  return json({ match: { id: m.id, host: m.host, guest: m.guest, seed: m.seed, status: m.status, round: m.round, round_started: m.round_started, host_delta: m.host_delta, guest_delta: m.guest_delta }, users, progress, ratings, rounds: VS_ROUNDS, dur: VS_DUR, now: Date.now() });
+  const { results: ratings } = await env.DB.prepare(
+    "SELECT r.user_id, r.elo FROM vs_ratings r JOIN vs_players p ON p.user_id = r.user_id AND p.match_id = ?2 WHERE r.scope_id = ?1"
+  ).bind(scope, id).all();
+  return json({ match: { id: m.id, host: m.host, seed: m.seed, status: m.status, round: m.round, round_started: m.round_started }, players, progress, ratings, rounds: VS_ROUNDS, dur: VS_DUR, max: VS_MAX, now: Date.now() });
 }
 async function vsOpen(url, env) {
+  await vsp(env);
   const ch = str(url.searchParams.get("channel"));
   if (!ch) return json({ rows: [] });
   const { results } = await env.DB.prepare(
-    `SELECT m.id, m.created_at, u.id AS uid, u.name, u.avatar FROM vs_matches m JOIN users u ON u.id = m.host
+    `SELECT m.id, m.created_at, u.id AS uid, u.name, u.avatar, (SELECT COUNT(*) FROM vs_players p WHERE p.match_id = m.id) AS players
+     FROM vs_matches m JOIN users u ON u.id = m.host
      WHERE m.channel_id = ?1 AND m.status = 'waiting' AND m.created_at > ?2 ORDER BY m.created_at DESC LIMIT 10`
   ).bind(ch, Date.now() - 15 * 60e3).all();
-  return json({ rows: results });
+  return json({ rows: results, max: VS_MAX });
 }
 async function vsBoard(url, env) {
   const id = str(url.searchParams.get("id"));
@@ -382,7 +433,7 @@ async function vsBoard(url, env) {
 // ================= Discord bot messages =================
 const API_D = "https://discord.com/api/v10";
 const GOLD = 0xC8AA6E, V2 = 1 << 15;
-const MODE_ICON = { classic: "🧩", ability: "✨", splash: "🖼️", quote: "💬", emoji: "😀", item: "💰", connections: "🔗" };
+const MODE_ICON = { classic: "🧩", ability: "✨", splash: "🖼️", quote: "💬", emoji: "😀", item: "💰" };
 const berlinDay = (t = Date.now()) => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Berlin" }).format(new Date(t));
 const avatarUrl = u => u.avatar ? `https://cdn.discordapp.com/avatars/${u.id}/${u.avatar}.png?size=128` : `https://cdn.discordapp.com/embed/avatars/${Number((BigInt(u.id) >> 22n) % 6n)}.png`;
 const playBtn = () => ({ type: 1, components: [{ type: 2, style: 1, label: "Play now!", custom_id: "launch" }] });
