@@ -461,10 +461,10 @@ function isTwin(n){if(n===S.target||(mode!=="item"&&mode!=="classic"))return fal
 function pool(m,day){if(m==="item")return ITEMS.filter(i=>i.depth>=2||i.cost>=1000);
   if(m==="quote")return day&&day<NEWQ?CH.filter(c=>c.info&&c.info.quote):CH.filter(c=>c.quotes&&c.quotes.length);
   return m==="classic"?CH.filter(c=>c.info):m==="emoji"?CH.filter(c=>c.info):CH;}
-// Voice lines are the League wiki's audio files (Discord URL mapping /wiki → wiki.leagueoflegends.com).
-// Voice lines come from the League wiki. It has an .mp3 copy of every .ogg, which iPhones and iPads need (they can't play .ogg).
-const WIKI=()=>IN_DISCORD?"/wiki":"https://wiki.leagueoflegends.com";
-const VOICE=fn=>{const f=encodeURIComponent(fn);return [`${WIKI()}/en-us/images/transcoded/${f}.ogg/${f}.ogg.mp3`,`${WIKI()}/en-us/images/${f}.ogg`];};
+// Voice lines come from the League wiki, streamed through our server (/api/voice) so Discord doesn't need
+// an extra URL mapping. The wiki has an .mp3 copy of every .ogg, which iPhones and iPads need.
+const VOICE=fn=>{const f=encodeURIComponent(fn),w="https://wiki.leagueoflegends.com/en-us/images";
+  return API?[`${API}/voice?f=${f}&t=mp3`,`${API}/voice?f=${f}&t=ogg`]:[`${w}/transcoded/${f}.ogg/${f}.ogg.mp3`,`${w}/${f}.ogg`];};
 const QTYPE={pick:"when picked",ban:"when banned",move:"while moving",attack:"while attacking",taunt:"as a taunt",joke:"as a joke",kill:"after a kill",encounter:"on meeting an enemy",recall:"while recalling",respawn:"on respawning"};
 function quoteOf(t){if(!S.random&&S.day<NEWQ&&t.info&&t.info.quote)return [t.info.quote,null];const L=t.quotes&&t.quotes.length?t.quotes:[[t.info.quote,null]];return L[Math.floor(S.r[0]*L.length)];}
 // Daily pick: replays every day from a fixed start date, never choosing anything picked in the
@@ -546,7 +546,7 @@ function clueHtml(t,wrong){
   if(mode==="classic")return `<h2>Guess today's champion</h2><p class="hint">Type any champion to begin. Each guess shows how close it is.</p>${worthHtml(wrong)}`;
   if(mode==="ability")return `<h2>Which champion has this ability?</h2><div class="clue"><img class="abil${!S.done&&S.gray!==false?" gray":""}" id="abImg" alt="Ability icon" src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=="></div><div class="tgl"><label><input type="checkbox" id="grayT" ${S.gray!==false?"checked":""}${S.done?" disabled":""}> Grayscale</label><label><input type="checkbox" id="rotT" ${S.rot!==false?"checked":""}${S.done?" disabled":""}> Rotated</label></div><p class="hint" style="margin-top:6px">Turning either off costs 20% of your points${(S.helps||[]).length?` · used: ${(S.helps||[]).map(h=>h==="color"?"colour":"upright").join(", ")}`:""}</p>${worthHtml(wrong)}`;
   if(mode==="splash")return `<h2>Which champion is in this splash art?</h2><div class="clue"><div class="splash"><img id="spImg" alt="Part of a splash art" style="opacity:0"></div></div><p class="hint" style="margin-top:8px">It zooms out a bit with every wrong guess. Find the champion, then name the skin for +20.</p>${worthHtml(wrong)}`;
-  if(mode==="quote"){const i=t.info,[q,ty,fn]=quoteOf(t);return `<h2>Which champion says this?</h2><p class="quote">“${esc(q)}”</p>${(S.done||wrong>=2)&&ty&&QTYPE[ty]?`<p class="hint" style="margin-top:10px">${S.done?"Said":"Hint: said"} ${QTYPE[ty]}</p>`:""}${!S.done&&wrong>=4?`<p class="hint" style="margin-top:6px">Hint: from ${esc(i.regions.join(" / "))}</p>`:""}${fn&&(S.done||wrong>=6)?`<p class="voice"><button type="button" class="btn" onclick="const a=this.nextElementSibling;a.currentTime=0;a.play().catch(()=>{this.textContent='Couldn\\'t play the audio';})">🔊 ${S.done?"Hear the line":"Hint: hear the line"}</button><audio preload="none"><source src="${VOICE(fn)[0]}" type="audio/mpeg"><source src="${VOICE(fn)[1]}" type="audio/ogg"></audio></p>`:""}${worthHtml(wrong)}`;}
+  if(mode==="quote"){const i=t.info,[q,ty,fn]=quoteOf(t);return `<h2>Which champion says this?</h2><p class="quote">“${esc(q)}”</p>${(S.done||wrong>=2)&&ty&&QTYPE[ty]?`<p class="hint" style="margin-top:10px">${S.done?"Said":"Hint: said"} ${QTYPE[ty]}</p>`:""}${!S.done&&wrong>=4?`<p class="hint" style="margin-top:6px">Hint: from ${esc(i.regions.join(" / "))}</p>`:""}${fn&&(S.done||wrong>=6)?`<p class="voice"><button type="button" class="btn" data-voice="${esc(fn)}">🔊 ${S.done?"Hear the line":"Hint: hear the line"}</button></p>`:""}${worthHtml(wrong)}`;}
   if(mode==="emoji"){const E=t.info.emojis,show=S.done?E.length:Math.min(E.length,1+wrong);return `<h2>Which champion do these emojis describe?</h2><div class="emojis">${E.map((e,i)=>i<show?`<span>${emo(e)}</span>`:`<span class="hid">?</span>`).join("")}</div><p class="hint" style="margin-top:8px">A new emoji appears after each wrong guess.</p>${worthHtml(wrong)}`;}
   return "";
 }
@@ -574,7 +574,13 @@ function bonusHtml(){
 }
 const bonusSent=()=>S.vs?vsSend():pushProgress();
 const nextMode=()=>MODES.find(m=>m[0]!==mode&&!dailyDone(m[0]));
+// Tries each voice source in turn until one plays.
+function bindVoice(){document.querySelectorAll("[data-voice]").forEach(b=>b.onclick=async()=>{
+  const label=b.textContent;b.textContent="🔊 Loading…";
+  for(const src of VOICE(b.dataset.voice)){try{const a=new Audio(src);await a.play();b.textContent=label;window.__voiceSrc=src;return;}catch(_){}}
+  b.textContent="Couldn't play the audio";});}
 async function afterRender(t,wrong){
+  bindVoice();
   if(mode==="ability"){
     const useHelp=h=>{S.helps=S.helps||[];if(!S.helps.includes(h))S.helps.push(h);};
     const gt=$("grayT");if(gt)gt.onchange=()=>{S.gray=gt.checked;if(!gt.checked)useHelp("color");save(skey(),S);render();};
@@ -724,7 +730,9 @@ function vsBarHtml(){
 }
 function vsPrevHtml(){const p=VS.prev;if(!p)return "";return `<div class="vsprev"><img src="${icon(p.t)}" alt=""><span class="hint">${p.solved?"✓ You got it:":"Last round's answer:"} <b>${esc(p.t.name)}</b></span></div>`;}
 function vsCountdownHtml(){const st=VS.st,m=st.match,mi=MODE_INFO(st.rounds[m.round]);return `<div class="card vscd">${vsPrevHtml()}<p class="hint" style="margin-top:12px">Next up</p><h2>${emo(mi[2])} ${mi[1]}</h2><p class="cd" id="vsCd">${Math.max(1,Math.ceil((m.round_started-vsNow())/1000))}</p></div>`;}
-function vsWaitText(){const m=VS.st.match,me=vsMeId(),others=VS.st.players.filter(p=>p.id!==me),left=others.filter(p=>{const x=vsRow(p.id,m.round)||{};return !x.done||(HASBONUS(mode)&&x.bonus==null);});return left.length?`Waiting for ${left.length===1?esc(left[0].name||"1 player"):left.length+" players"}… (round ends when time runs out)`:"Everyone's done! Next round in a moment…";}
+function vsWaitText(){const m=VS.st.match,me=vsMeId(),others=VS.st.players.filter(p=>p.id!==me&&!(p.seen&&p.seen<vsNow()-15000)),left=others.filter(p=>!(vsRow(p.id,m.round)||{}).done),bon=HASBONUS(mode)?others.filter(p=>{const x=vsRow(p.id,m.round)||{};return x.done&&x.bonus==null;}):[];
+  if(!left.length&&bon.length)return `${bon.length===1?esc(bon[0].name||"1 player")+" is":bon.length+" players are"} answering the bonus…`;
+  return left.length?`Waiting for ${left.length===1?esc(left[0].name||"1 player"):left.length+" players"}… (round ends when time runs out)`:"Everyone's done! Next round in a moment…";}
 function vsPtsText(){const p=vsRow(vsMeId(),VS.st.match.round);return `+${p&&p.done?p.points:"…"} points${p&&p.bonus===1?" (incl. +20 bonus)":""}`;}
 function vsRoundEndHtml(t){
   const p=vsRow(vsMeId(),VS.st.match.round);

@@ -46,9 +46,10 @@ export default {
       if (path === "/vs/progress" && req.method === "POST") return await vsProgress(req, env);
       if (path === "/vs/leave" && req.method === "POST") return await vsLeave(req, env);
       if (path === "/vs/start" && req.method === "POST") return await vsStart(req, env);
-      if (path === "/vs/state" && req.method === "GET") return await vsState(url, env);
+      if (path === "/vs/state" && req.method === "GET") return await vsState(req, url, env);
       if (path === "/vs/open" && req.method === "GET") return await vsOpen(url, env);
       if (path === "/vs/board" && req.method === "GET") return await vsBoard(url, env);
+      if (path === "/voice" && req.method === "GET") return await voice(req, url);
       if (path === "/" ) return json({ ok: true, name: "Leagledle API" });
       return json({ error: "not found" }, 404);
     } catch (e) {
@@ -56,6 +57,25 @@ export default {
     }
   },
 };
+
+// ---------- voice lines ----------
+// Streams a voice line from the League wiki, so the game doesn't depend on a separate Discord URL mapping
+// for the wiki. t=mp3 is the wiki's .mp3 copy (iPhones can't play .ogg), t=ogg the original file.
+async function voice(req, url) {
+  const f = String(url.searchParams.get("f") || "");
+  if (!/^[\w\-.'()!,&]{1,150}$/.test(f)) return new Response("bad file", { status: 400 });
+  const e = encodeURIComponent(f);
+  const src = url.searchParams.get("t") === "ogg"
+    ? `https://wiki.leagueoflegends.com/en-us/images/${e}.ogg`
+    : `https://wiki.leagueoflegends.com/en-us/images/transcoded/${e}.ogg/${e}.ogg.mp3`;
+  const h = { "User-Agent": "Leagledle/1.0 (Discord Activity)" };
+  const range = req.headers.get("Range"); if (range) h.Range = range;
+  const r = await fetch(src, { headers: h, cf: { cacheTtl: 2592000, cacheEverything: true } });
+  const out = new Headers({ "Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=2592000", "Accept-Ranges": "bytes" });
+  out.set("Content-Type", r.ok ? (url.searchParams.get("t") === "ogg" ? "audio/ogg" : "audio/mpeg") : "text/plain");
+  for (const k of ["Content-Length", "Content-Range"]) { const v = r.headers.get(k); if (v) out.set(k, v); }
+  return new Response(r.body, { status: r.status, headers: out });
+}
 
 // ---------- login ----------
 async function token(req, env) {
@@ -267,7 +287,7 @@ function rankName(elo) {
 // The host starts the match once at least 2 players are in. Each server keeps its own VS Elo: every pair of
 // players counts as one head-to-head result, scaled so a match is worth about the same as a 1v1.
 const VS_ROUNDS = ["classic", "ability", "splash", "quote", "emoji", "item"], VS_DUR = 90000, VS_GAP = 6000, VS_MAX = 8;
-const VS_BONUS = ["ability", "splash"], VS_BONUS_PTS = 20;
+const VS_BONUS = ["ability", "splash"], VS_BONUS_PTS = 20, VS_BONUS_WAIT = 20000, VS_AWAY = 15000;
 const vsId = () => [...crypto.getRandomValues(new Uint8Array(6))].map(b => "abcdefghjkmnpqrstuvwxyz23456789"[b % 31]).join("");
 const changed = r => !r || !r.meta || r.meta.changes == null || r.meta.changes > 0;
 // Player list per match. Created on first use, so no manual SQL step is needed.
@@ -277,6 +297,8 @@ async function vsp(env) {
   await env.DB.prepare("CREATE TABLE IF NOT EXISTS vs_players (match_id TEXT NOT NULL, user_id TEXT NOT NULL, joined_at INTEGER NOT NULL, delta REAL, PRIMARY KEY (match_id, user_id))").run();
   // Bonus answer (ability key / skin name) per round; older databases don't have the column yet.
   try { await env.DB.prepare("ALTER TABLE vs_progress ADD COLUMN bonus INTEGER").run(); } catch (_) {}
+  // When each player last checked in, so someone who closed the game doesn't hold up every round.
+  try { await env.DB.prepare("ALTER TABLE vs_players ADD COLUMN seen INTEGER").run(); } catch (_) {}
   VSP_READY = true;
 }
 async function vsPlayerIds(env, id) {
@@ -290,7 +312,7 @@ async function vsCreate(req, env) {
   const id = vsId(), seed = crypto.getRandomValues(new Uint32Array(1))[0], now = Date.now();
   await env.DB.prepare("INSERT INTO vs_matches (id, host, channel_id, guild_id, seed, status, created_at) VALUES (?1, ?2, ?3, ?4, ?5, 'waiting', ?6)")
     .bind(id, uid, str(b.channel), str(b.guild), seed, now).run();
-  await env.DB.prepare("INSERT OR IGNORE INTO vs_players (match_id, user_id, joined_at) VALUES (?1, ?2, ?3)").bind(id, uid, now).run();
+  await env.DB.prepare("INSERT OR IGNORE INTO vs_players (match_id, user_id, joined_at, seen) VALUES (?1, ?2, ?3, ?3)").bind(id, uid, now).run();
   return json({ id });
 }
 async function vsJoin(req, env) {
@@ -303,7 +325,7 @@ async function vsJoin(req, env) {
   if (ids.includes(uid)) return json({ ok: true });
   if (m.status !== "waiting") return json({ error: "match already started" }, 409);
   if (ids.length >= VS_MAX) return json({ error: "match is full" }, 409);
-  await env.DB.prepare("INSERT OR IGNORE INTO vs_players (match_id, user_id, joined_at) VALUES (?1, ?2, ?3)").bind(m.id, uid, Date.now()).run();
+  await env.DB.prepare("INSERT OR IGNORE INTO vs_players (match_id, user_id, joined_at, seen) VALUES (?1, ?2, ?3, ?3)").bind(m.id, uid, Date.now()).run();
   return json({ ok: true });
 }
 async function vsStart(req, env) {
@@ -363,11 +385,15 @@ async function vsTick(env, id) {
   const now = Date.now();
   if (m.status === "waiting" && now - m.created_at > 15 * 60e3) { await env.DB.prepare("UPDATE vs_matches SET status = 'cancelled' WHERE id = ?1 AND status = 'waiting'").bind(id).run(); return null; }
   if (m.status !== "playing" || now < m.round_started) return m;
-  const n = (await vsPlayerIds(env, id)).length;
-  // A player is finished once they solved the round (and, in bonus rounds, answered the bonus too).
-  const bon = VS_BONUS.includes(VS_ROUNDS[m.round]) ? " AND bonus IS NOT NULL" : "";
-  const d = await env.DB.prepare("SELECT COUNT(*) AS n FROM vs_progress WHERE match_id = ?1 AND round = ?2 AND done = 1" + bon).bind(id, m.round).first();
-  if (d.n < n && now < m.round_started + VS_DUR) return m;
+  // Only players still in the game count (checked in within VS_AWAY). A player is finished once they
+  // solved the round and, in bonus rounds, answered the bonus (or had VS_BONUS_WAIT to do it).
+  const away = now - VS_AWAY;
+  const n = (await env.DB.prepare("SELECT COUNT(*) AS n FROM vs_players WHERE match_id = ?1 AND (seen IS NULL OR seen > ?2)").bind(id, away).first()).n;
+  const bon = VS_BONUS.includes(VS_ROUNDS[m.round]) ? " AND (g.bonus IS NOT NULL OR g.finished_at < ?4)" : "";
+  const d = await env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM vs_progress g JOIN vs_players p ON p.match_id = g.match_id AND p.user_id = g.user_id WHERE g.match_id = ?1 AND g.round = ?2 AND g.done = 1 AND (p.seen IS NULL OR p.seen > ?3)" + bon
+  ).bind(...[id, m.round, away].concat(bon ? [now - VS_BONUS_WAIT] : [])).first();
+  if ((n === 0 || d.n < n) && now < m.round_started + VS_DUR) return m;
   if (m.round + 1 >= VS_ROUNDS.length) {
     const r = await env.DB.prepare("UPDATE vs_matches SET status = 'done' WHERE id = ?1 AND status = 'playing' AND round = ?2").bind(id, m.round).run();
     if (changed(r)) await vsSettle(env, id);
@@ -404,14 +430,16 @@ async function vsSettle(env, id) {
   }
   await env.DB.prepare("UPDATE vs_matches SET host_delta = 0 WHERE id = ?1").bind(id).run();
 }
-async function vsState(url, env) {
+async function vsState(req, url, env) {
   await vsp(env);
   const id = String(url.searchParams.get("id") || "");
+  const uid = await auth(req, env), now0 = Date.now();
+  if (uid) await env.DB.prepare("UPDATE vs_players SET seen = ?3 WHERE match_id = ?1 AND user_id = ?2 AND (seen IS NULL OR seen < ?3 - 4000)").bind(id, uid, now0).run();
   await vsTick(env, id);
   const m = await env.DB.prepare("SELECT * FROM vs_matches WHERE id = ?1").bind(id).first();
   if (!m) return json({ error: "match not found" }, 404);
   const { results: players } = await env.DB.prepare(
-    "SELECT p.user_id AS id, p.delta, u.name, u.avatar FROM vs_players p LEFT JOIN users u ON u.id = p.user_id WHERE p.match_id = ?1 ORDER BY p.joined_at"
+    "SELECT p.user_id AS id, p.delta, p.seen, u.name, u.avatar FROM vs_players p LEFT JOIN users u ON u.id = p.user_id WHERE p.match_id = ?1 ORDER BY p.joined_at"
   ).bind(id).all();
   const { results: progress } = await env.DB.prepare("SELECT user_id, round, guesses, done, points, bonus FROM vs_progress WHERE match_id = ?1").bind(id).all();
   const scope = m.guild_id || m.channel_id || "global";
