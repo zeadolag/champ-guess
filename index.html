@@ -111,7 +111,7 @@ nav button .ok{color:var(--green);font-size:13px}
 .nhelp{font-size:12px;color:var(--muted);margin:8px 0 6px}
 .ngrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(58px,1fr));gap:6px;max-height:320px;overflow-y:auto;padding:2px}
 .nc{position:relative;background:none;border:2px solid transparent;border-radius:9px;padding:3px;cursor:pointer;color:var(--ink);display:flex;flex-direction:column;align-items:center;gap:2px;-webkit-tap-highlight-color:transparent}
-.nc[hidden],.nh[hidden]{display:none}.nh{grid-column:1/-1;font-size:11.5px;font-weight:800;color:var(--gold);letter-spacing:.04em;text-transform:uppercase;padding:6px 2px 0;border-top:1px solid var(--line);margin-top:2px}.nh:first-child{border-top:0;margin-top:0}.nc img{width:44px;height:44px;border-radius:7px;display:block}.nc span{font-size:10px;line-height:1.1;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nc[hidden],.nh[hidden]{display:none}.nh{grid-column:1/-1;font-size:11.5px;font-weight:800;color:var(--gold);letter-spacing:.04em;text-transform:uppercase;padding:6px 2px 0;border-top:1px solid var(--line);margin-top:2px}.nh:first-child{border-top:0;margin-top:0}.nh{display:flex;align-items:center;justify-content:space-between;gap:8px}.nhb{font:inherit;font-size:10.5px;font-weight:700;letter-spacing:0;text-transform:none;color:var(--muted);background:none;border:1px solid var(--line);border-radius:999px;padding:2px 9px;cursor:pointer}.nhb:hover{color:var(--ink);border-color:var(--gold)}.nc img{width:44px;height:44px;border-radius:7px;display:block}.nc span{font-size:10px;line-height:1.1;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .nc.mx img,.nc.mg img{filter:grayscale(1) brightness(.45)}.nc.mx span,.nc.mg span{opacity:.45;text-decoration:line-through}
 .nc.mx::after,.nc.mg::after{content:"✗";position:absolute;top:8px;left:50%;transform:translateX(-50%);font-size:26px;font-weight:900;color:#ef6a6a;text-shadow:0 1px 3px #000}
 .nc.mg::after{color:#999}.nc.mg{cursor:default}
@@ -770,12 +770,14 @@ function notesGroups(){
   return [[null,base]];
 }
 let NOTES_BRUSH=(()=>{try{return localStorage.getItem("cg-notes-brush")||"x";}catch(_){return "x";}})();
+// Group header button: applies the chosen mark to the whole group (or clears it if the whole group already has it).
+const NHB=()=>NOTES_BRUSH==="s"?"★ all":NOTES_BRUSH==="c"?"○ clear all":"✗ rule out all";
 function notesHtml(){
   const M=S.marks||{},nx=Object.values(M).filter(v=>v==="x").length,ns=Object.values(M).filter(v=>v==="s").length;
   return `<div class="notes"><button type="button" class="nbtn" id="nTog" aria-expanded="${NOTES_OPEN}">📝 Notes <span>${nx?`✗ ${nx}`:""}${ns?` ★ ${ns}`:""}</span><b>${NOTES_OPEN?"▲":"▼"}</b></button>
   ${NOTES_OPEN?`<div class="npanel"><div class="nbar"><div class="nviews nbrush"><small>Mark as</small>${[["x","✗ Ruled out"],["s","★ Maybe"],["c","○ Clear"]].map(([k,l])=>`<button type="button" data-nb="${k}" class="${NOTES_BRUSH===k?"on":""}">${l}</button>`).join("")}</div>
   ${NOTES_SORTS[mode]?`<div class="nviews"><small>Sort by</small>${NOTES_SORTS[mode].map(([k,l])=>`<button type="button" data-ns="${k}" class="${notesSortKey()===k?"on":""}">${l}</button>`).join("")}</div>`:""}<div class="nviews"><small>Show</small>${[["all","All"],["open","Hide ✗"],["s","★ only"]].map(([k,l])=>`<button type="button" data-nv="${k}" class="${NOTES_VIEW===k?"on":""}">${l}</button>`).join("")}<button type="button" id="nClr" class="nclr">Clear all</button></div></div>
-  <p class="nhelp">Tap an icon to mark it, or hold and drag across icons to mark several. Tap a marked icon again to clear it.</p><p class="nhelp" id="nEmpty" hidden>Nothing to show here yet.</p><div class="ngrid" id="nGrid">${notesGroups().map(([h,L])=>(h?`<div class="nh">${esc(h)}</div>`:"")+L.map(c=>{const g=S.guesses.includes(c.name),m=g?"g":(M[c.name]||"");return `<button type="button" class="nc ${m?"m"+m:""}" data-nn="${esc(c.name)}" title="${esc(c.name)}"${g?" disabled":""}><img src="${icon(c)}" alt="" loading="lazy" draggable="false"><span>${esc(c.name)}</span></button>`;}).join("")).join("")}</div></div>`:""}</div>`;}
+  <p class="nhelp">Tap an icon to mark it, or hold and drag across icons to mark several. Tap a marked icon again to clear it.</p><p class="nhelp" id="nEmpty" hidden>Nothing to show here yet.</p><div class="ngrid" id="nGrid">${notesGroups().map(([h,L])=>(h?`<div class="nh"><span>${esc(h)}</span><button type="button" class="nhb" data-ng>${NHB()}</button></div>`:"")+L.map(c=>{const g=S.guesses.includes(c.name),m=g?"g":(M[c.name]||"");return `<button type="button" class="nc ${m?"m"+m:""}" data-nn="${esc(c.name)}" title="${esc(c.name)}"${g?" disabled":""}><img src="${icon(c)}" alt="" loading="lazy" draggable="false"><span>${esc(c.name)}</span></button>`;}).join("")).join("")}</div></div>`:""}</div>`;}
 function bindNotes(){
   const tog=$("nTog");if(!tog)return;
   tog.onclick=()=>{NOTES_OPEN=!NOTES_OPEN;try{localStorage.setItem("cg-notes-open",NOTES_OPEN?"1":"0");}catch(_){}const v=$("gIn")&&$("gIn").value;render();if(v&&$("gIn"))$("gIn").value=v;};
@@ -784,6 +786,8 @@ function bindNotes(){
   const apply=()=>{let last=null,any=false;const fin=()=>{if(last)last.hidden=!any;};for(const b of grid.children){if(b.classList.contains("nh")){fin();last=b;any=false;continue;}const m=(S.marks||{})[b.dataset.nn]||"";b.hidden=(NOTES_VIEW==="open"&&(m==="x"||b.disabled))||(NOTES_VIEW==="s"&&m!=="s");if(!b.hidden)any=true;}fin();const e=$("nEmpty");if(e)e.hidden=[...grid.querySelectorAll(".nc")].some(b=>!b.hidden);};
   const setMark=(b,v)=>{if(!b||b.disabled)return;const n=b.dataset.nn;S.marks=S.marks||{};if(v)S.marks[n]=v;else delete S.marks[n];grid.querySelectorAll(`[data-nn="${CSS.escape(n)}"]`).forEach(x=>{if(!x.disabled)x.className="nc "+(v?"m"+v:"");});};
   const done=()=>{save(skey(),S);count();apply();};
+  grid.querySelectorAll("[data-ng]").forEach(hb=>hb.onclick=()=>{const L=[];for(let el=hb.parentElement.nextElementSibling;el&&!el.classList.contains("nh");el=el.nextElementSibling)if(!el.disabled)L.push(el);
+    const want=NOTES_BRUSH==="c"?"":NOTES_BRUSH,v=L.every(b=>((S.marks||{})[b.dataset.nn]||"")===want)?"":want;L.forEach(b=>setMark(b,v));done();});
   // Painting: the first icon decides the action (the chosen mark, or clear if it already had it); dragging applies the same to every icon passed over.
   let paint=null,timer=null,start=null,moved=false;
   const target=(x,y)=>{const el=document.elementFromPoint(x,y);return el&&el.closest&&el.closest("#nGrid [data-nn]");};
@@ -798,7 +802,7 @@ function bindNotes(){
   window.__nCancel=()=>{if(!paint){clearTimeout(timer);start=null;}};
   window.addEventListener("pointerup",window.__nUp);window.addEventListener("pointercancel",window.__nCancel);
   grid.addEventListener("contextmenu",e=>e.preventDefault());
-  document.querySelectorAll("[data-nb]").forEach(b=>b.onclick=()=>{NOTES_BRUSH=b.dataset.nb;try{localStorage.setItem("cg-notes-brush",NOTES_BRUSH);}catch(_){}document.querySelectorAll("[data-nb]").forEach(x=>x.classList.toggle("on",x===b));});
+  document.querySelectorAll("[data-nb]").forEach(b=>b.onclick=()=>{NOTES_BRUSH=b.dataset.nb;try{localStorage.setItem("cg-notes-brush",NOTES_BRUSH);}catch(_){}document.querySelectorAll("[data-nb]").forEach(x=>x.classList.toggle("on",x===b));document.querySelectorAll("[data-ng]").forEach(x=>x.textContent=NHB());});
   document.querySelectorAll("[data-nv]").forEach(b=>b.onclick=()=>{NOTES_VIEW=b.dataset.nv;document.querySelectorAll("[data-nv]").forEach(x=>x.classList.toggle("on",x===b));apply();});
   $("nClr").onclick=()=>{if(!S.marks||!Object.keys(S.marks).length)return;S.marks={};grid.querySelectorAll("[data-nn]").forEach(b=>{if(!b.disabled)b.className="nc";});done();};
   document.querySelectorAll("[data-ns]").forEach(b=>b.onclick=()=>{NOTES_SORT[mode]=b.dataset.ns;try{localStorage.setItem("cg-notes-sort",JSON.stringify(NOTES_SORT));}catch(_){}const v=$("gIn")&&$("gIn").value,sc=grid.scrollTop;render();if(v&&$("gIn"))$("gIn").value=v;});
