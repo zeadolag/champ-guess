@@ -420,7 +420,7 @@ async function loadItems(){
   ITEMS=L.sort((a,b)=>a.name.localeCompare(b.name));for(const i of ITEMS)IBY[i.name]=i;
 }
 const T=n=>mode==="item"?IBY[n]:BY[n];
-const TAGN={Damage:"Attack Damage",CriticalStrike:"Crit",AttackSpeed:"Attack Speed",SpellDamage:"Ability Power",Health:"Health",Armor:"Armor",SpellBlock:"Magic Resist",Mana:"Mana",ManaRegen:"Mana Regen",HealthRegen:"Health Regen",LifeSteal:"Life Steal",SpellVamp:"Omnivamp",CooldownReduction:"Ability Haste",AbilityHaste:"Ability Haste",Boots:"Boots",NonbootsMovement:"Move Speed",ArmorPenetration:"Armor Pen",MagicPenetration:"Magic Pen",OnHit:"On-hit",Active:"Active",Slow:"Slow",Tenacity:"Tenacity",Aura:"Aura",GoldPer:"Gold income",Vision:"Vision",Stealth:"Stealth"};
+const TAGN={Damage:"Attack Damage",CriticalStrike:"Crit",AttackSpeed:"Attack Speed",SpellDamage:"Ability Power",Health:"Health",Armor:"Armor",SpellBlock:"Magic Resist",Mana:"Mana",ManaRegen:"Mana Regen",HealthRegen:"Health Regen",LifeSteal:"Life Steal",SpellVamp:"Omnivamp",CooldownReduction:"Ability Haste",AbilityHaste:"Ability Haste",Boots:"Boots",NonbootsMovement:"Move Speed",ArmorPenetration:"Armor Pen",MagicPenetration:"Magic Pen",OnHit:"On-hit",Active:"Active",Slow:"Slow",Tenacity:"Tenacity",Aura:"Aura",GoldPer:"Gold Generation",Vision:"Vision",Stealth:"Stealth"};
 const gold=n=>Number(n).toLocaleString("en-US");
 // The real stats from the item's tooltip, e.g. "40 Attack Damage" (Riot's tags are often incomplete).
 function statLines(desc){
@@ -444,7 +444,7 @@ function itemCells(g,t){const gs=stats(g),ts=new Set(stats(t)),hit=gs.filter(x=>
     ["stats",gs.join(", ")||"None",hit===gs.length&&gs.length===ts.size?"g":hit?"o":"x"],
     ["act",g.act?"Yes":"No",g.act===t.act?"g":"x"],
     ["from",g.from.length?String(g.from.length):"0",g.from.length===t.from.length?"g":"x",g.from.length<t.from.length?"↑":g.from.length>t.from.length?"↓":""]];}
-const stats=it=>it.st||[...new Set(it.tags.map(x=>TAGN[x]||x))];
+const stats=it=>it.st||[...new Set(it.tags.filter(x=>x!=="Lane"&&x!=="Jungle").map(x=>TAGN[x]||x))];
 
 async function init(){
   try{
@@ -758,7 +758,7 @@ function vsResults(){
 // Tap an icon to cycle: nothing → ✗ ruled out → ★ maybe → nothing. Saved with the puzzle. No automatic filtering.
 let NOTES_OPEN=(()=>{try{return localStorage.getItem("cg-notes-open")==="1";}catch(_){return false;}})(),NOTES_VIEW="all";
 // Each mode's notes grid shows only things that can be that mode's answer, with sort options that fit the mode.
-const NOTES_SORTS={classic:[["az","A–Z"],["pos","Role"]],item:[["az","A–Z"],["type","Type"]]};
+const NOTES_SORTS={classic:[["az","A–Z"],["pos","Role"]],item:[["az","A–Z"],["type","Type"],["stat","Stat"],["price","Price"]]};
 let NOTES_SORT=(()=>{try{return JSON.parse(localStorage.getItem("cg-notes-sort")||"{}");}catch(_){return {};}})();
 const notesSortKey=()=>{const o=NOTES_SORTS[mode];return o?(o.find(x=>x[0]===NOTES_SORT[mode])||o[0])[0]:"az";};
 function notesGroups(){
@@ -769,6 +769,8 @@ function notesGroups(){
   if(k==="region")return grp(c=>c.info.regions,(a,b)=>a[0].localeCompare(b[0]));
   if(k==="pos"){const O=["Top","Jungle","Middle","Bottom","Support"];return grp(c=>c.info.pos,(a,b)=>O.indexOf(a[0])-O.indexOf(b[0]));}
   if(k==="price"){base.sort((a,b)=>a.cost-b.cost||a.name.localeCompare(b.name));const B=[[999,"Under 1,000 g"],[1999,"1,000–1,999 g"],[2499,"2,000–2,499 g"],[2799,"2,500–2,799 g"],[2999,"2,800–2,999 g"],[3000,"3,000 g"],[3250,"3,050–3,250 g"],[1e9,"3,300 g +"]];return grp(c=>B.find(x=>c.cost<=x[0])[1],(a,b)=>B.findIndex(x=>x[1]===a[0])-B.findIndex(x=>x[1]===b[0]));}
+  // By stat: an item shows up under every stat it gives.
+  if(k==="stat")return grp(c=>{const x=stats(c);return x.length?x:["No stats"];},(a,b)=>(a[0]==="No stats")-(b[0]==="No stats")||a[0].localeCompare(b[0]));
   if(k==="type"){const O=["Legendary","Epic","Tier 3 Boots","Boots","Support","Basic","Starter"];return grp(c=>c.type,(a,b)=>O.indexOf(a[0])-O.indexOf(b[0]));}
   return [[null,base]];
 }
