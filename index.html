@@ -111,6 +111,17 @@ nav button .ok{color:var(--green);font-size:13px}
 .ovtb{border-collapse:collapse;width:100%;font-size:13px}.ovtb th,.ovtb td{padding:7px 9px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
 .ovtb th{position:sticky;top:0;background:var(--panel2);font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);cursor:pointer;white-space:nowrap;user-select:none}.ovtb th.on{color:var(--gold)}
 .ovnm{white-space:nowrap;font-weight:700;position:sticky;left:0;background:var(--panel);z-index:1}.ovtb th:first-child{left:0;z-index:2}.ovnm img{width:26px;height:26px;border-radius:6px;vertical-align:middle;margin-right:8px}
+.hhead{text-align:left;display:grid;grid-template-columns:1fr auto;gap:10px 14px;align-items:center}.hhead h2{margin:0 0 4px;text-align:left}.hhead .hint{margin:0;text-align:left}
+.hpts{text-align:right}.hpts b{display:block;font-size:30px;color:var(--gold);line-height:1}.hpts small{color:var(--muted);font-size:12px}
+.hbar{grid-column:1/-1;height:6px;background:var(--panel2);border-radius:99px;overflow:hidden}.hbar i{display:block;height:100%;background:var(--gold);border-radius:99px;transition:width .4s}
+.hgo{grid-column:1/-1;justify-self:start}
+.hgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px;margin-bottom:14px}
+.hcard{display:flex;gap:12px;align-items:flex-start;text-align:left;font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px;cursor:pointer;transition:border-color .15s,transform .15s}
+.hcard:hover{border-color:var(--gold);transform:translateY(-1px)}.he .emo,.he img{width:30px;height:30px}.he{font-size:28px;line-height:1}
+.ht{display:flex;flex-direction:column;gap:3px;min-width:0}.ht b{font-size:16px}.ht small{color:var(--muted);font-size:12.5px;line-height:1.35}
+.ht em{font-style:normal;font-size:12px;font-weight:700;color:var(--muted);margin-top:4px}.hcard.ok em{color:var(--green)}.hcard.go em{color:var(--gold)}.hcard.ok{border-color:color-mix(in srgb,var(--green) 45%,var(--line))}
+#modes [data-home]{padding-left:12px;padding-right:12px}
+@media(max-width:560px){.hgrid{grid-template-columns:1fr 1fr;gap:8px}.hcard{flex-direction:column;gap:6px;padding:12px}.ht small{display:none}.h2 .ht small{display:block}}
 .vsres{text-align:center}.vsscore{font-size:16px;margin:4px 0 10px}.vst2 tr.me td{color:var(--gold)}.vst2 th{font-weight:600}.vst2 small{color:var(--mut,#8a8f98);font-size:11px}.vst2{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px}.vst2 td,.vst2 th{padding:7px 6px;border-bottom:1px solid var(--line)}.vst2 td:first-child{text-align:left}.vst2 small{color:var(--muted);margin-left:4px}.vst2 .x{color:var(--muted)}
 .place{margin-top:6px;font-size:15px}.place:empty{display:none}
 .voice{margin-top:10px}.voice .btn{font-size:14px;padding:8px 14px}
@@ -465,7 +476,7 @@ async function init(){
     for(const c of CH)BY[c.name]=c;
   }catch(e){$("game").innerHTML=`<p class="msg">Couldn't load the champion list from Riot. Check your connection and reload.</p>`;console.error(e);return;}
   if(!MODES.some(m=>m[0]===mode))mode="classic";
-  start();
+  home();
 }
 // Quote mode switched from one quote per champion to many (quotes.json) on NEWQ; earlier days keep the old pool.
 const NEWQ="2026-11-20";let QUOTES=null;const SPZ={key:null,z:0};
@@ -502,6 +513,7 @@ function dailyPick(m,day){
 function pick(m,seedStr){const P=pool(m);const r=rng(hash(m+"|"+seedStr));return {target:P[Math.floor(r()*P.length)].name,r1:r(),r2:r(),r3:r()};}
 const skey=()=>S&&S.vs?"cg-vs-round":(S&&S.random?"cg-r-":"cg-")+mode;
 function start(){
+  HOME=false;
   if(!MODES.some(x=>x[0]===mode))mode="classic";
   if(mode==="quote"&&!QUOTES){$("game").innerHTML=`<p class="msg">Loading quotes…</p>`;renderNav();loadQuotes().then(start).catch(()=>{QUOTES={};start();});return;}
   if(mode==="item"&&!ITEMS){$("game").innerHTML=`<p class="msg">Loading items…</p>`;renderNav();loadItems().then(start).catch(()=>{$("game").innerHTML=`<p class="msg">Couldn't load the item list from Riot. Reload to try again.</p>`;});return;}
@@ -514,9 +526,36 @@ function start(){
 function randomRound(){const rec=load("cg-recent-"+mode)||[],d=load("cg-"+mode),avoid=new Set(rec.concat(d&&d.target?[d.target]:[]));
   let p;for(let i=0;i<40;i++){p=pick(mode,String(Math.random()));if(!avoid.has(p.target))break;}
   save("cg-recent-"+mode,rec.concat(p.target).slice(-30));S={day:today(),random:true,target:p.target,r:[p.r1,p.r2,p.r3],guesses:[],done:false};save(skey(),S);render();}
+// ---------- Home screen ----------
+let HOME=false;
+document.addEventListener("keydown",e=>{if(e.key==="Escape"&&$("infoOv"))closeInfo();});
+document.querySelector("h1.logo").style.cursor="pointer";document.querySelector("h1.logo").addEventListener("click",()=>{if(!HOME)home();});
+const MODE_DESC={classic:"Guess from gender, role, region and more",ability:"Name the champion from an ability icon",splash:"Spot the champion in a zoomed-in splash",quote:"Who says this voice line?",emoji:"Decode the champion from emojis",item:"Find the item from its price and stats"};
+function modeStatus(m){const st=load("cg-"+m);if(!st||st.random||st.day!==today()||!st.guesses||!st.guesses.length)return {k:"new",t:"Not started"};
+  const n=st.guesses.length;if(!st.done)return {k:"go",t:`In progress · ${n} guess${n===1?"":"es"}`};
+  if(st.gaveUp)return {k:"gu",t:"Gave up · 0 pts",p:0};
+  const p=score(m,n,st.helps)+((m==="ability"||m==="splash")&&st.bonus===1?20:0);return {k:"ok",t:`✓ ${n} guess${n===1?"":"es"} · ${p} pts`,p};}
+function untilReset(){const d=new Date(),n=new Date(d);n.setHours(24,0,0,0);const m=Math.round((n-d)/60000);return `${Math.floor(m/60)}h ${m%60}m`;}
+function home(){
+  if(VS)vsExit();HOME=true;S=null;closeInfo();save("cg-mode",mode);
+  const sts=MODES.map(([k])=>modeStatus(k)),done=sts.filter(x=>x.k==="ok"||x.k==="gu").length,pts=sts.reduce((a,x)=>a+(x.p||0),0);
+  const nxt=MODES.find((m,i)=>sts[i].k==="go")||MODES.find((m,i)=>sts[i].k==="new");
+  $("sub").textContent="Daily League of Legends guessing games";
+  $("game").innerHTML=`<div class="card hhead"><div><h2>Today's puzzles</h2><p class="hint">${done===MODES.length?"All done for today! New puzzles in "+untilReset()+".":`${done} of ${MODES.length} done · new puzzles in ${untilReset()}`}</p></div><div class="hpts"><b>${pts}</b><small>points today</small></div>
+    <div class="hbar"><i style="width:${done/MODES.length*100}%"></i></div>${nxt?`<button type="button" class="btn pri hgo" data-hm="${nxt[0]}">${sts[MODES.indexOf(nxt)].k==="go"?"Continue":"Play"} ${nxt[1]}</button>`:""}</div>
+  <div class="hgrid">${MODES.map(([k,l,e],i)=>`<button type="button" class="hcard ${sts[i].k}" data-hm="${k}"><span class="he">${emo(e)}</span><span class="ht"><b>${l}</b><small>${MODE_DESC[k]}</small><em>${sts[i].t}</em></span></button>`).join("")}</div>
+  <div class="hgrid h2">
+    <button type="button" class="hcard" id="hVs"><span class="he">${emo("⚔️")}</span><span class="ht"><b>Versus</b><small>Race 2–8 friends live through one round of every mode</small><em>${IN_DISCORD?"Play in this channel":"Open in Discord to play"}</em></span></button>
+    <button type="button" class="hcard" id="hInfo"><span class="he">${emo("📖")}</span><span class="ht"><b>Info</b><small>Browse champion and item data</small><em>${dailyDone("classic")?"Champions ✓":"Champions 🔒 Classic"} · ${dailyDone("item")?"Items ✓":"Items 🔒 Item"}</em></span></button>
+  </div>`;
+  $("game").querySelectorAll("[data-hm]").forEach(b=>b.onclick=()=>{mode=b.dataset.hm;start();});
+  $("hVs").onclick=()=>{HOME=false;vsLobby();};
+  $("hInfo").onclick=()=>openInfo(dailyDone("classic")||!dailyDone("item")?"champ":"item");
+  renderNav();refreshSocial();window.scrollTo(0,0);
+}
 function dailyDone(m){const st=load("cg-"+m);return st&&st.day===today()&&!st.random&&st.done;}
-function renderNav(){$("modes").innerHTML=MODES.map(([k,l,e])=>`<button type="button" data-mode="${k}" aria-pressed="${!VS&&mode===k}">${emo(e)} ${l}${dailyDone(k)?' <span class="ok">✓</span>':""}</button>`).join("")+`<button type="button" data-vsb aria-pressed="${!!VS}" class="vsb">${emo("⚔️")} VS</button>`;}
-$("modes").addEventListener("click",e=>{const v=e.target.closest("[data-vsb]");if(v){if(!VS)vsLobby();return;}const b=e.target.closest("[data-mode]");if(!b)return;if(VS)vsExit();mode=b.dataset.mode;start();});
+function renderNav(){$("modes").innerHTML=`<button type="button" data-home aria-pressed="${HOME}" aria-label="Home">${emo("🏠")}</button>`+MODES.map(([k,l,e])=>`<button type="button" data-mode="${k}" aria-pressed="${!VS&&!HOME&&mode===k}">${emo(e)} ${l}${dailyDone(k)?' <span class="ok">✓</span>':""}</button>`).join("")+`<button type="button" data-vsb aria-pressed="${!!VS}" class="vsb">${emo("⚔️")} VS</button>`;}
+$("modes").addEventListener("click",e=>{if(e.target.closest("[data-home]")){home();return;}const v=e.target.closest("[data-vsb]");if(v){if(!VS){HOME=false;vsLobby();}return;}const b=e.target.closest("[data-mode]");if(!b)return;if(VS)vsExit();mode=b.dataset.mode;start();});
 
 async function detail(c){if(DETAIL[c.id])return DETAIL[c.id];const j=await (await fetch(`${DD}/cdn/${V}/data/en_US/champion/${c.id}.json`)).json();return DETAIL[c.id]=j.data[c.id];}
 
@@ -666,7 +705,7 @@ async function openInfo(tab){
   if(VS)return;IV.tab=tab||IV.tab;IV.q="";
   if(!ITEMS)await loadItems().catch(()=>{});
   let ov=$("infoOv");if(!ov){ov=document.createElement("div");ov.id="infoOv";ov.className="ov";document.body.appendChild(ov);
-    ov.addEventListener("click",e=>{if(e.target===ov)closeInfo();});document.addEventListener("keydown",e=>{if(e.key==="Escape"&&$("infoOv"))closeInfo();});}
+    ov.addEventListener("click",e=>{if(e.target===ov)closeInfo();});}
   ov.innerHTML=`<div class="ovc" role="dialog" aria-label="Info"><div class="ovh"><div class="ovt">${[["champ","Champions"],["item","Items"]].map(([k,l])=>`<button type="button" data-it="${k}">${l}</button>`).join("")}</div><button type="button" class="ovx" id="infoX" aria-label="Close">✕</button></div>
     <input id="infoQ" class="ovq" placeholder="Search…" autocomplete="off" spellcheck="false" aria-label="Search"><div id="infoB2"></div></div>`;
   $("infoX").onclick=closeInfo;ov.querySelectorAll("[data-it]").forEach(b=>b.onclick=()=>{IV.tab=b.dataset.it;IV.q="";$("infoQ").value="";drawInfo();});
