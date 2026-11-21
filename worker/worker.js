@@ -310,6 +310,8 @@ async function vsp(env) {
   // When each player last checked in, so someone who closed the game doesn't hold up every round.
   try { await env.DB.prepare("ALTER TABLE vs_players ADD COLUMN seen INTEGER").run(); } catch (_) {}
   try { await env.DB.prepare("ALTER TABLE vs_matches ADD COLUMN blitz INTEGER").run(); } catch (_) {}
+  // Each player's running total, so polling doesn't have to add up every round.
+  try { await env.DB.prepare("ALTER TABLE vs_players ADD COLUMN score INTEGER").run(); } catch (_) {}
   VSP_READY = true;
 }
 async function vsPlayerIds(env, id) {
@@ -386,32 +388,9 @@ async function vsProgress(req, env) {
   if (VS_BONUS.includes(VS_ROUNDS[m.round]) && (b.bonus === 0 || b.bonus === 1))
     await env.DB.prepare("UPDATE vs_progress SET bonus = ?4, points = points + ?5 WHERE match_id = ?1 AND user_id = ?2 AND round = ?3 AND done = 1 AND bonus IS NULL")
       .bind(m.id, uid, m.round, b.bonus, b.bonus === 1 ? VS_BONUS_PTS : 0).run();
-  await vsTick(env, m.id);
+  if (done) await env.DB.prepare("UPDATE vs_players SET score = (SELECT COALESCE(SUM(points), 0) FROM vs_progress WHERE match_id = ?1 AND user_id = ?2) WHERE match_id = ?1 AND user_id = ?2").bind(m.id, uid).run();
+  // The round moves on at the next /vs/state poll (at most ~2 s later).
   return json({ ok: true, points });
-}
-// Moves the match forward when a round is over (everyone solved, or time ran out). Safe to call from several players at once.
-async function vsTick(env, id) {
-  const m = await env.DB.prepare("SELECT * FROM vs_matches WHERE id = ?1").bind(id).first();
-  if (!m) return null;
-  const now = Date.now();
-  if (m.status === "waiting" && now - m.created_at > 15 * 60e3) { await env.DB.prepare("UPDATE vs_matches SET status = 'cancelled' WHERE id = ?1 AND status = 'waiting'").bind(id).run(); return null; }
-  if (m.status !== "playing" || now < m.round_started) return m;
-  // Only players still in the game count (checked in within VS_AWAY). A player is finished once they
-  // solved the round and, in bonus rounds, answered the bonus (or had VS_BONUS_WAIT to do it).
-  const away = now - VS_AWAY;
-  const n = (await env.DB.prepare("SELECT COUNT(*) AS n FROM vs_players WHERE match_id = ?1 AND (seen IS NULL OR seen > ?2)").bind(id, away).first()).n;
-  const bon = VS_BONUS.includes(VS_ROUNDS[m.round]) ? " AND (g.bonus IS NOT NULL OR g.finished_at < ?4)" : "";
-  const d = await env.DB.prepare(
-    "SELECT COUNT(*) AS n FROM vs_progress g JOIN vs_players p ON p.match_id = g.match_id AND p.user_id = g.user_id WHERE g.match_id = ?1 AND g.round = ?2 AND g.done = 1 AND (p.seen IS NULL OR p.seen > ?3)" + bon
-  ).bind(...[id, m.round, away].concat(bon ? [now - VS_BONUS_WAIT] : [])).first();
-  if ((n === 0 || d.n < n) && now < (await vsDeadline(env, m))) return m;
-  if (m.round + 1 >= VS_ROUNDS.length) {
-    const r = await env.DB.prepare("UPDATE vs_matches SET status = 'done' WHERE id = ?1 AND status = 'playing' AND round = ?2").bind(id, m.round).run();
-    if (changed(r)) await vsSettle(env, id);
-  } else {
-    await env.DB.prepare("UPDATE vs_matches SET round = round + 1, round_started = ?1 WHERE id = ?2 AND status = 'playing' AND round = ?3").bind(now + vsGap(m), id, m.round).run();
-  }
-  return null;
 }
 async function vsSettle(env, id) {
   const m = await env.DB.prepare("SELECT * FROM vs_matches WHERE id = ?1").bind(id).first();
@@ -441,24 +420,58 @@ async function vsSettle(env, id) {
   }
   await env.DB.prepare("UPDATE vs_matches SET host_delta = 0 WHERE id = ?1").bind(id).run();
 }
+// Polled every ~2 s by every player, so it reads as few rows as possible (D1's free tier counts rows read):
+// the match, its players and only the current round's progress. Moving to the next round happens here too.
 async function vsState(req, url, env) {
   await vsp(env);
   const id = String(url.searchParams.get("id") || "");
-  const uid = await auth(req, env), now0 = Date.now();
-  if (uid) await env.DB.prepare("UPDATE vs_players SET seen = ?3 WHERE match_id = ?1 AND user_id = ?2 AND (seen IS NULL OR seen < ?3 - 4000)").bind(id, uid, now0).run();
-  await vsTick(env, id);
-  const m = await env.DB.prepare("SELECT * FROM vs_matches WHERE id = ?1").bind(id).first();
+  const uid = await auth(req, env), now = Date.now();
+  const q = () => env.DB.batch([
+    env.DB.prepare("SELECT * FROM vs_matches WHERE id = ?1").bind(id),
+    env.DB.prepare("SELECT p.user_id AS id, p.delta, p.seen, COALESCE(p.score, 0) AS score, u.name, u.avatar FROM vs_players p LEFT JOIN users u ON u.id = p.user_id WHERE p.match_id = ?1 ORDER BY p.joined_at").bind(id),
+    env.DB.prepare("SELECT g.user_id, g.round, g.guesses, g.done, g.points, g.bonus, g.finished_at FROM vs_progress g JOIN vs_matches m ON m.id = g.match_id AND g.round = m.round WHERE g.match_id = ?1").bind(id),
+  ]);
+  let [mr, pr, gr] = await q();
+  let m = mr.results[0];
   if (!m) return json({ error: "match not found" }, 404);
-  const { results: players } = await env.DB.prepare(
-    "SELECT p.user_id AS id, p.delta, p.seen, u.name, u.avatar FROM vs_players p LEFT JOIN users u ON u.id = p.user_id WHERE p.match_id = ?1 ORDER BY p.joined_at"
-  ).bind(id).all();
-  const { results: progress } = await env.DB.prepare("SELECT user_id, round, guesses, done, points, bonus FROM vs_progress WHERE match_id = ?1").bind(id).all();
-  const scope = m.guild_id || m.channel_id || "global";
-  const { results: ratings } = await env.DB.prepare(
-    "SELECT r.user_id, r.elo FROM vs_ratings r JOIN vs_players p ON p.user_id = r.user_id AND p.match_id = ?2 WHERE r.scope_id = ?1"
-  ).bind(scope, id).all();
-  const ends = m.status === "playing" ? await vsDeadline(env, m) : null;
-  return json({ match: { id: m.id, host: m.host, seed: m.seed, status: m.status, round: m.round, round_started: m.round_started, round_ends: ends, blitz: !!m.blitz }, players, progress, ratings, rounds: VS_ROUNDS, dur: vsDur(m), max: VS_MAX, now: Date.now() });
+  let players = pr.results, progress = gr.results;
+  const me = uid && players.find(p => p.id === uid);
+  // Note when each player last checked in (only every 10 s, to save writes).
+  if (me && (!me.seen || me.seen < now - 10000)) await env.DB.prepare("UPDATE vs_players SET seen = ?3 WHERE match_id = ?1 AND user_id = ?2").bind(id, uid, now).run();
+  let moved = false;
+  if (m.status === "waiting" && now - m.created_at > 15 * 60e3) {
+    await env.DB.prepare("UPDATE vs_matches SET status = 'cancelled' WHERE id = ?1 AND status = 'waiting'").bind(id).run(); moved = true;
+  } else if (m.status === "playing" && now >= m.round_started) {
+    // Round over? Everyone still here has solved it (and answered the bonus, or had VS_BONUS_WAIT for it), or time's up.
+    const away = now - VS_AWAY, bonusRound = VS_BONUS.includes(VS_ROUNDS[m.round]);
+    const active = players.filter(p => !p.seen || p.seen > away || p.id === uid).map(p => p.id);
+    const fin = progress.filter(g => g.done && active.includes(g.user_id) && (!bonusRound || g.bonus != null || g.finished_at < now - VS_BONUS_WAIT));
+    let end = m.round_started + vsDur(m);
+    const first = Math.min(...progress.filter(g => g.done && g.finished_at).map(g => g.finished_at));
+    if (m.blitz && isFinite(first)) end = Math.min(end, first + VS_BLITZ_AFTER);
+    if ((active.length && fin.length >= active.length) || now >= end) {
+      if (m.round + 1 >= VS_ROUNDS.length) {
+        const r = await env.DB.prepare("UPDATE vs_matches SET status = 'done' WHERE id = ?1 AND status = 'playing' AND round = ?2").bind(id, m.round).run();
+        if (changed(r)) await vsSettle(env, id);
+      } else {
+        await env.DB.prepare("UPDATE vs_matches SET round = round + 1, round_started = ?1 WHERE id = ?2 AND status = 'playing' AND round = ?3").bind(now + vsGap(m), id, m.round).run();
+      }
+      moved = true;
+    } else m.round_ends = end;
+  }
+  if (moved) { [mr, pr, gr] = await q(); m = mr.results[0]; players = pr.results; progress = gr.results; }
+  if (m.status === "playing" && m.round_ends == null) m.round_ends = m.round_started + vsDur(m);
+  // Results and the waiting room need more: every round's progress and the players' VS ratings.
+  let ratings = [];
+  if (m.status !== "playing") {
+    const scope = m.guild_id || m.channel_id || "global";
+    const [all, rt] = await env.DB.batch([
+      env.DB.prepare("SELECT user_id, round, guesses, done, points, bonus FROM vs_progress WHERE match_id = ?1").bind(id),
+      env.DB.prepare("SELECT r.user_id, r.elo FROM vs_ratings r JOIN vs_players p ON p.user_id = r.user_id AND p.match_id = ?2 WHERE r.scope_id = ?1").bind(scope, id),
+    ]);
+    progress = all.results; ratings = rt.results;
+  }
+  return json({ match: { id: m.id, host: m.host, seed: m.seed, status: m.status, round: m.round, round_started: m.round_started, round_ends: m.round_ends || null, blitz: !!m.blitz }, players, progress, ratings, rounds: VS_ROUNDS, dur: vsDur(m), max: VS_MAX, now: Date.now() });
 }
 async function vsOpen(url, env) {
   await vsp(env);

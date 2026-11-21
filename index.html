@@ -790,13 +790,16 @@ function vsLobby(){
   lobby();VS.poll=setInterval(lobby,3000);
   api(`/vs/board?id=${CTX.guild||CTX.channel||""}`).then(b=>{const el=$("vsBoardL");if(!el)return;el.innerHTML=(b.rows||[]).length?b.rows.map((u,i)=>`<div class="srow${ME&&u.id===ME.id?" me":""}"><span class="rk">${i+1}</span><img src="${avatar(u)}" alt=""><span class="nm">${esc(u.name)}<small>${rankPill(u.elo)} ${rankOf(u.elo).lp} LP</small></span><span class="tm">${u.wins}W ${u.losses}L${u.draws?` ${u.draws}D`:""}</span></div>`).join(""):`<p class="hint">No VS matches played here yet. Everyone starts in Gold II.</p>`;}).catch(()=>{});
 }
-function vsSend(){const id=VS&&VS.id,round=VS&&VS.st&&VS.st.match.round;if(!id)return;api("/vs/progress",{method:"POST",body:JSON.stringify({id,round,guesses:S.guesses.length,done:S.done&&!S.timeout,bonus:S.bonus==null?null:S.bonus})}).then(()=>vsUpdate()).catch(()=>{});}
+function vsSend(){const id=VS&&VS.id,round=VS&&VS.st&&VS.st.match.round;if(!id)return;api("/vs/progress",{method:"POST",body:JSON.stringify({id,round,guesses:S.guesses.length,done:S.done&&!S.timeout,bonus:S.bonus==null?null:S.bonus})}).then(()=>vsUpdate(!!S&&S.done)).catch(()=>{});}
 function alertMsg(t){const el=$("vsOpenL");if(el)el.insertAdjacentHTML("afterbegin",`<p class="hint" style="color:#ef6a6a">${esc(t)}</p>`);}
-function vsEnter(id){clearInterval(VS.poll);VS.id=id;VS.rk=null;VS.shown=null;VS.prev=null;vsUpdate();VS.poll=setInterval(vsUpdate,1000);}
-async function vsUpdate(){
+// The screen updates twice a second, but the server is only asked every 2 s while playing (3 s otherwise)
+// and not at all while the game is hidden, to stay within the database's free daily limit.
+function vsEnter(id){clearInterval(VS.poll);VS.id=id;VS.rk=null;VS.shown=null;VS.prev=null;VS.last=0;vsUpdate(true);VS.poll=setInterval(()=>{if(!VS||!VS.st)return;const iv=VS.st.match.status==="playing"?2000:3000;vsUpdate(!document.hidden&&Date.now()-VS.last>=iv);},500);}
+async function vsUpdate(fetchNow){
   if(!VS||!VS.id)return;
-  let r;try{r=await api(`/vs/state?id=${VS.id}`);}catch(_){return;}
-  if(!VS||!r.match)return;VS.st=r;VS.off=r.now-Date.now();const m=r.match;
+  if(fetchNow&&!VS.busy){VS.busy=true;VS.last=Date.now();let x=null;try{x=await api(`/vs/state?id=${VS.id}`);}catch(_){}VS.busy=false;
+    if(!VS||!x||!x.match){if(!VS||!VS.st)return;}else{VS.st=x;VS.off=x.now-Date.now();}}
+  if(!VS||!VS.st)return;const r=VS.st,m=r.match;
   if(m.status==="waiting"){const sig="wait|"+r.players.map(p=>p.id).join(",");if(VS.shown!==sig){VS.shown=sig;vsWaitScreen();}return;}
   if(m.status==="cancelled"){clearInterval(VS.poll);$("game").innerHTML=`<div class="card"><h2>Match cancelled</h2><p class="hint">The host left, or the match didn't start in time.</p><div class="btns"><button class="btn pri" id="vsBack" type="button">Back to VS</button></div></div>`;$("vsBack").onclick=vsLobby;return;}
   if(m.status==="done"){if(VS.shown!=="done"){VS.shown="done";clearInterval(VS.poll);vsKeepPrev();vsResults();}return;}
@@ -823,14 +826,15 @@ function vsWaitScreen(){
     <div class="vsps">${st.players.map(p=>`<span class="vsc${ME&&p.id===ME.id?" me":""}"><img src="${avatar(p)}" alt="">${esc(p.name||"Player")}${p.id===m.host?" 👑":""}</span>`).join("")}</div>
     <p class="hint" style="margin-top:8px">${n}/${st.max} players</p>
     <div class="btns">${host?`<button class="btn pri" id="vsGo" type="button"${n<2?" disabled":""}>${n<2?"Waiting for players…":`Start with ${n} players`}</button>`:""}${SDK?`<button class="btn" id="vsInv" type="button">Invite friends</button>`:""}<button class="btn" id="vsCancel" type="button">${host?"Cancel match":"Leave"}</button></div></div>`;
-  const go=$("vsGo");if(go)go.onclick=async()=>{go.disabled=true;const r=await api("/vs/start",{method:"POST",body:JSON.stringify({id:VS.id})}).catch(()=>({}));if(!r.ok){go.disabled=false;go.textContent=r.error||"Couldn't start";}else vsUpdate();};
+  const go=$("vsGo");if(go)go.onclick=async()=>{go.disabled=true;const r=await api("/vs/start",{method:"POST",body:JSON.stringify({id:VS.id})}).catch(()=>({}));if(!r.ok){go.disabled=false;go.textContent=r.error||"Couldn't start";}else vsUpdate(true);};
   const iv=$("vsInv");if(iv)iv.onclick=async()=>{try{if(!AUTHED)await discordLogin(location.hostname.split(".")[0]);await SDK.commands.openInviteDialog();}catch(_){}};
   $("vsCancel").onclick=()=>{vsExit();vsLobby();};
 }
 const vsUser=id=>VS.st.players.find(p=>p.id===id)||{id,name:"Player",avatar:null};
 function vsMeId(){const ids=VS.st.players.map(p=>p.id);return ME&&ids.includes(ME.id)?ME.id:ids[0];}
 function vsRow(uid,round){return VS.st.progress.find(p=>p.user_id===uid&&p.round===round);}
-function vsTotal(uid){return VS.st.progress.filter(p=>p.user_id===uid).reduce((a,p)=>a+p.points,0);}
+// While playing the server only sends the current round, so the running total comes from players[].score.
+function vsTotal(uid){const st=VS.st,u=st.players.find(p=>p.id===uid);if(st.match.status==="playing"&&u&&u.score!=null)return u.score;return st.progress.filter(p=>p.user_id===uid).reduce((a,p)=>a+p.points,0);}
 // Players by total points (highest first).
 function vsStandings(){return VS.st.players.slice().sort((a,b)=>vsTotal(b.id)-vsTotal(a.id));}
 // End of the current round: the server's deadline (Blitz pulls it forward after the first solve).
