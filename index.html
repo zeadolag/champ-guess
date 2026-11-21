@@ -413,6 +413,9 @@ async function loadItems(){
     if(!it.maps||!it.maps["11"]||Number(id)>=10000||/^Guardian's /.test(it.name)||!it.gold||!it.gold.purchasable||!(it.gold.total>0)||it.inStore===false||it.requiredChampion||it.requiredAlly||it.hideFromAll||tg.includes("Consumable")||tg.includes("Trinket")||/</.test(it.name)||seen.has(it.name))continue;
     seen.add(it.name);L.push({id,name:it.name,item:true,cost:it.gold.total,tags:tg,st:statLines(it.description),act:/<active>/i.test(it.description||"")||tg.includes("Active"),from:(it.from||[]).map(f=>d[f]&&d[f].name).filter(Boolean),depth:it.depth||1});
   }
+  // Some upgraded boots (e.g. Gunmetal Greaves) are missing Riot's "Boots" tag: anything built from boots is boots too.
+  const boots=new Set(L.filter(i=>i.tags.includes("Boots")).map(i=>i.name));
+  for(const i of L)if(!i.tags.includes("Boots")&&i.from.some(f=>boots.has(f)))i.tags=[...i.tags,"Boots"];
   for(const i of L)i.type=itemType(i);
   ITEMS=L.sort((a,b)=>a.name.localeCompare(b.name));for(const i of ITEMS)IBY[i.name]=i;
 }
@@ -430,7 +433,7 @@ function itemType(i){
   if(i.tags.includes("Boots"))return i.depth>=3?"Tier 3 Boots":"Boots";
   if(/^(Doran's|Dark Seal|Cull|World Atlas|Scorchclaw|Gustwalker|Mosstomper|Tear of the Goddess)/.test(i.name))return "Starter";
   if(/^(Celestial Opposition|Dream Maker|Zaz'Zak's|Solstice Sleigh|Bloodsong)/.test(i.name))return "Support";
-  if(i.depth>=3||i.cost>=2500)return "Legendary";
+  if(i.depth>=3||i.cost>=2500||i.name==="Mejai's Soulstealer")return "Legendary";
   return i.depth===2?"Epic":"Basic";
 }
 // Item mode works like Classic: each guess is compared to today's item on these columns.
