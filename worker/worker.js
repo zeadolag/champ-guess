@@ -263,9 +263,11 @@ function rankName(elo) {
 // ================= VS mode (live, 2–8 players) =================
 // Players race through one random puzzle per mode. Each round lasts VS_DUR; it ends early once everyone
 // has solved it. Points per round = guess score x speed (100% if instant, 50% at the buzzer); unsolved = 0.
+// Ability and splash rounds have a bonus question after solving (which key / which skin): +20 if right.
 // The host starts the match once at least 2 players are in. Each server keeps its own VS Elo: every pair of
 // players counts as one head-to-head result, scaled so a match is worth about the same as a 1v1.
 const VS_ROUNDS = ["classic", "ability", "splash", "quote", "emoji", "item"], VS_DUR = 90000, VS_GAP = 6000, VS_MAX = 8;
+const VS_BONUS = ["ability", "splash"], VS_BONUS_PTS = 20;
 const vsId = () => [...crypto.getRandomValues(new Uint8Array(6))].map(b => "abcdefghjkmnpqrstuvwxyz23456789"[b % 31]).join("");
 const changed = r => !r || !r.meta || r.meta.changes == null || r.meta.changes > 0;
 // Player list per match. Created on first use, so no manual SQL step is needed.
@@ -273,6 +275,8 @@ let VSP_READY = false;
 async function vsp(env) {
   if (VSP_READY) return;
   await env.DB.prepare("CREATE TABLE IF NOT EXISTS vs_players (match_id TEXT NOT NULL, user_id TEXT NOT NULL, joined_at INTEGER NOT NULL, delta REAL, PRIMARY KEY (match_id, user_id))").run();
+  // Bonus answer (ability key / skin name) per round; older databases don't have the column yet.
+  try { await env.DB.prepare("ALTER TABLE vs_progress ADD COLUMN bonus INTEGER").run(); } catch (_) {}
   VSP_READY = true;
 }
 async function vsPlayerIds(env, id) {
@@ -345,6 +349,10 @@ async function vsProgress(req, env) {
        points = CASE WHEN vs_progress.done = 1 THEN vs_progress.points ELSE ?7 END,
        done = MAX(vs_progress.done, ?5)`
   ).bind(m.id, uid, m.round, guesses, done, done ? now : null, points).run();
+  // One bonus answer per round, only after solving it.
+  if (VS_BONUS.includes(VS_ROUNDS[m.round]) && (b.bonus === 0 || b.bonus === 1))
+    await env.DB.prepare("UPDATE vs_progress SET bonus = ?4, points = points + ?5 WHERE match_id = ?1 AND user_id = ?2 AND round = ?3 AND done = 1 AND bonus IS NULL")
+      .bind(m.id, uid, m.round, b.bonus, b.bonus === 1 ? VS_BONUS_PTS : 0).run();
   await vsTick(env, m.id);
   return json({ ok: true, points });
 }
@@ -356,7 +364,9 @@ async function vsTick(env, id) {
   if (m.status === "waiting" && now - m.created_at > 15 * 60e3) { await env.DB.prepare("UPDATE vs_matches SET status = 'cancelled' WHERE id = ?1 AND status = 'waiting'").bind(id).run(); return null; }
   if (m.status !== "playing" || now < m.round_started) return m;
   const n = (await vsPlayerIds(env, id)).length;
-  const d = await env.DB.prepare("SELECT COUNT(*) AS n FROM vs_progress WHERE match_id = ?1 AND round = ?2 AND done = 1").bind(id, m.round).first();
+  // A player is finished once they solved the round (and, in bonus rounds, answered the bonus too).
+  const bon = VS_BONUS.includes(VS_ROUNDS[m.round]) ? " AND bonus IS NOT NULL" : "";
+  const d = await env.DB.prepare("SELECT COUNT(*) AS n FROM vs_progress WHERE match_id = ?1 AND round = ?2 AND done = 1" + bon).bind(id, m.round).first();
   if (d.n < n && now < m.round_started + VS_DUR) return m;
   if (m.round + 1 >= VS_ROUNDS.length) {
     const r = await env.DB.prepare("UPDATE vs_matches SET status = 'done' WHERE id = ?1 AND status = 'playing' AND round = ?2").bind(id, m.round).run();
@@ -403,7 +413,7 @@ async function vsState(url, env) {
   const { results: players } = await env.DB.prepare(
     "SELECT p.user_id AS id, p.delta, u.name, u.avatar FROM vs_players p LEFT JOIN users u ON u.id = p.user_id WHERE p.match_id = ?1 ORDER BY p.joined_at"
   ).bind(id).all();
-  const { results: progress } = await env.DB.prepare("SELECT user_id, round, guesses, done, points FROM vs_progress WHERE match_id = ?1").bind(id).all();
+  const { results: progress } = await env.DB.prepare("SELECT user_id, round, guesses, done, points, bonus FROM vs_progress WHERE match_id = ?1").bind(id).all();
   const scope = m.guild_id || m.channel_id || "global";
   const { results: ratings } = await env.DB.prepare(
     "SELECT r.user_id, r.elo FROM vs_ratings r JOIN vs_players p ON p.user_id = r.user_id AND p.match_id = ?2 WHERE r.scope_id = ?1"

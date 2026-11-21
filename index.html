@@ -572,6 +572,7 @@ function bonusHtml(){
   if(S.bonus==null)return `<div class="bonus"><p><b>Bonus:</b> which ability is it? One try, +20 points</p><div class="bks">${["Passive","Q","W","E","R"].map(k=>`<button type="button" class="btn" data-bk="${k}">${k}</button>`).join("")}</div></div>`;
   return `<p class="bres ${S.bonus?"ok":"no"}">${S.bonus?`✓ Right, it's the ${esc(S.abKey)}!`:`✗ You said ${esc(S.bonusKey)}, it was the ${esc(S.abKey)}`}</p>`;
 }
+const bonusSent=()=>S.vs?vsSend():pushProgress();
 const nextMode=()=>MODES.find(m=>m[0]!==mode&&!dailyDone(m[0]));
 async function afterRender(t,wrong){
   if(mode==="ability"){
@@ -583,7 +584,7 @@ async function afterRender(t,wrong){
     const a=all[Math.floor(S.r[0]*all.length)];const im=$("abImg");if(im){im.src=a.src;im.style.transform=S.done||S.rot===false?"none":`rotate(${[90,180,270][Math.floor(S.r[1]*3)]}deg)${S.r[2]<.5?" scaleX(-1)":""}`;}
     if(S.abKey!==a.k){S.abKey=a.k;save(skey(),S);}
     S.extra=S.done&&S.bonus==null?"":`${a.k}: ${a.n}`;
-    document.querySelectorAll("[data-bk]").forEach(b=>b.onclick=()=>{S.bonusKey=b.dataset.bk;S.bonus=b.dataset.bk===S.abKey?1:0;save(skey(),S);pushProgress();render();setTimeout(refreshSocial,400);});
+    document.querySelectorAll("[data-bk]").forEach(b=>b.onclick=()=>{S.bonusKey=b.dataset.bk;S.bonus=b.dataset.bk===S.abKey?1:0;save(skey(),S);bonusSent();render();setTimeout(refreshSocial,400);});
     if(S.done&&S.bonus!=null){const p=document.querySelector(".win .wsub");if(p)p.textContent=`${a.k}: ${a.n} · Found in ${S.guesses.length} guess${S.guesses.length===1?"":"es"}`;}
   }
   if(mode==="splash"){
@@ -616,7 +617,7 @@ async function afterRender(t,wrong){
       if(S.bonus==null){
         box.innerHTML=`<div class="bonus"><p><b>Bonus:</b> which skin is it? One try, +20 points</p><div class="inrow skrow"><input id="skIn" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Type or pick a skin…" aria-label="Skin name"><button id="skBtn" type="button" disabled>Guess</button><div class="sugg" id="skSugg" role="listbox"></div></div></div>`;
         const inp=$("skIn"),sb=$("skSugg"),btn=$("skBtn"),names=skins.map(skName);let act=0,items=[];
-        const pick=n=>{S.bonusKey=n;S.bonus=n===S.skKey?1:0;save(skey(),S);pushProgress();render();setTimeout(refreshSocial,400);};
+        const pick=n=>{S.bonusKey=n;S.bonus=n===S.skKey?1:0;save(skey(),S);bonusSent();render();setTimeout(refreshSocial,400);};
         const draw=()=>{const q=norm(inp.value);items=q?names.filter(n=>norm(n).startsWith(q)).concat(names.filter(n=>!norm(n).startsWith(q)&&norm(n).includes(q))):names.slice();
           act=0;sb.classList.toggle("on",items.length>0);sb.innerHTML=items.map((n,i)=>`<button type="button" role="option" data-sk="${esc(n)}" class="${i===act?"act":""}">${esc(n)}</button>`).join("");btn.disabled=!q||!items.length;};
         inp.addEventListener("input",draw);inp.addEventListener("focus",draw);
@@ -672,7 +673,7 @@ function vsLobby(){
   lobby();VS.poll=setInterval(lobby,3000);
   api(`/vs/board?id=${CTX.guild||CTX.channel||""}`).then(b=>{const el=$("vsBoardL");if(!el)return;el.innerHTML=(b.rows||[]).length?b.rows.map((u,i)=>`<div class="srow${ME&&u.id===ME.id?" me":""}"><span class="rk">${i+1}</span><img src="${avatar(u)}" alt=""><span class="nm">${esc(u.name)}<small>${rankPill(u.elo)} ${rankOf(u.elo).lp} LP</small></span><span class="tm">${u.wins}W ${u.losses}L${u.draws?` ${u.draws}D`:""}</span></div>`).join(""):`<p class="hint">No VS matches played here yet. Everyone starts in Gold II.</p>`;}).catch(()=>{});
 }
-function vsSend(){const id=VS&&VS.id,round=VS&&VS.st&&VS.st.match.round;if(!id)return;api("/vs/progress",{method:"POST",body:JSON.stringify({id,round,guesses:S.guesses.length,done:S.done&&!S.timeout})}).then(()=>vsUpdate()).catch(()=>{});}
+function vsSend(){const id=VS&&VS.id,round=VS&&VS.st&&VS.st.match.round;if(!id)return;api("/vs/progress",{method:"POST",body:JSON.stringify({id,round,guesses:S.guesses.length,done:S.done&&!S.timeout,bonus:S.bonus==null?null:S.bonus})}).then(()=>vsUpdate()).catch(()=>{});}
 function alertMsg(t){const el=$("vsOpenL");if(el)el.insertAdjacentHTML("afterbegin",`<p class="hint" style="color:#ef6a6a">${esc(t)}</p>`);}
 function vsEnter(id){clearInterval(VS.poll);VS.id=id;VS.rk=null;VS.shown=null;VS.prev=null;vsUpdate();VS.poll=setInterval(vsUpdate,1000);}
 async function vsUpdate(){
@@ -694,7 +695,7 @@ async function vsUpdate(){
   if(!VS.started&&now>=m.round_started){VS.started=true;render();return;}
   if(VS.started&&!S.done&&now>=m.round_started+r.dur){S.done=true;S.timeout=true;render();return;}
   const bar=$("vsBar");if(bar)bar.outerHTML=vsBarHtml();
-  const we=$("vsWait");if(we)we.innerHTML=vsWaitText();
+  const we=$("vsWait");if(we)we.innerHTML=vsWaitText();const vp=$("vsPts");if(vp)vp.textContent=vsPtsText();
   const cd=$("vsCd");if(cd)cd.textContent=Math.max(1,Math.ceil((m.round_started-now)/1000));
 }
 // Remember the round that just ended, so the next countdown (or the results) can show its answer.
@@ -723,16 +724,17 @@ function vsBarHtml(){
 }
 function vsPrevHtml(){const p=VS.prev;if(!p)return "";return `<div class="vsprev"><img src="${icon(p.t)}" alt=""><span class="hint">${p.solved?"✓ You got it:":"Last round's answer:"} <b>${esc(p.t.name)}</b></span></div>`;}
 function vsCountdownHtml(){const st=VS.st,m=st.match,mi=MODE_INFO(st.rounds[m.round]);return `<div class="card vscd">${vsPrevHtml()}<p class="hint" style="margin-top:12px">Next up</p><h2>${emo(mi[2])} ${mi[1]}</h2><p class="cd" id="vsCd">${Math.max(1,Math.ceil((m.round_started-vsNow())/1000))}</p></div>`;}
-function vsWaitText(){const m=VS.st.match,me=vsMeId(),others=VS.st.players.filter(p=>p.id!==me),left=others.filter(p=>!(vsRow(p.id,m.round)||{}).done);return left.length?`Waiting for ${left.length===1?esc(left[0].name||"1 player"):left.length+" players"}… (round ends when time runs out)`:"Everyone's done! Next round in a moment…";}
+function vsWaitText(){const m=VS.st.match,me=vsMeId(),others=VS.st.players.filter(p=>p.id!==me),left=others.filter(p=>{const x=vsRow(p.id,m.round)||{};return !x.done||(HASBONUS(mode)&&x.bonus==null);});return left.length?`Waiting for ${left.length===1?esc(left[0].name||"1 player"):left.length+" players"}… (round ends when time runs out)`:"Everyone's done! Next round in a moment…";}
+function vsPtsText(){const p=vsRow(vsMeId(),VS.st.match.round);return `+${p&&p.done?p.points:"…"} points${p&&p.bonus===1?" (incl. +20 bonus)":""}`;}
 function vsRoundEndHtml(t){
   const p=vsRow(vsMeId(),VS.st.match.round);
-  return `<div class="card win"><img class="big" src="${icon(t)}" alt="">${S.timeout?`<p class="wsub">Time's up! The answer was</p><h2>${esc(t.name)}</h2>`:`<h2>${esc(t.name)}</h2><p class="wsub">Solved in ${S.guesses.length} guess${S.guesses.length===1?"":"es"}</p><p class="pts">+${p&&p.done?p.points:"…"} points</p>`}<p class="hint" id="vsWait">${vsWaitText()}</p></div>`;
+  return `<div class="card win"><img class="big" src="${icon(t)}" alt="">${S.timeout?`<p class="wsub">Time's up! The answer was</p><h2>${esc(t.name)}</h2>`:`<h2>${esc(t.name)}</h2><p class="wsub">Solved in ${S.guesses.length} guess${S.guesses.length===1?"":"es"}</p>${HASBONUS(mode)?(mode==="ability"?bonusHtml():`<div id="skB"></div>`):""}<p class="pts" id="vsPts">${vsPtsText()}</p>`}<p class="hint" id="vsWait">${vsWaitText()}</p></div>`;
 }
 function vsResults(){
   const st=VS.st,me=vsMeId(),order=vsStandings(),top=vsTotal(order[0].id),winners=order.filter(u=>vsTotal(u.id)===top);
   const place=order.findIndex(u=>u.id===me)+1,mine=st.players.find(p=>p.id===me)||{},rt=(st.ratings.find(x=>x.user_id===me)||{}).elo;
   const head=winners.length>1?(winners.some(u=>u.id===me)?"🤝 Shared win!":"It's a tie at the top"):winners[0].id===me?"🏆 You win!":`${esc(winners[0].name||"Player")} wins`;
-  const cell=(u,i)=>{const p=vsRow(u.id,i);return p&&p.done?`<b>${p.points}</b> <small title="guesses">${p.guesses}g</small>`:`<span class="x">–</span>`;};
+  const cell=(u,i)=>{const p=vsRow(u.id,i);return p&&p.done?`<b>${p.points}</b>${p.bonus===1?`<small title="bonus +20">★</small>`:""} <small title="guesses">${p.guesses}g</small>`:`<span class="x">–</span>`;};
   $("game").innerHTML=`<div class="card vsres">${VS.prev&&!VS.prev.solved?vsPrevHtml():""}<h2>${head}</h2><p class="vsscore">You placed <b>${place}${["st","nd","rd"][place-1]||"th"}</b> of ${order.length} · <b>${vsTotal(me)}</b> pts</p>
     ${mine.delta!=null&&rt!=null?`<p class="elo">${rankPill(rt)} ${rankOf(rt).lp} LP <b class="${mine.delta>=0?"up":"dn"}">${mine.delta>=0?"+":""}${Math.round(mine.delta*4)} LP</b></p>`:""}
     <div style="overflow-x:auto"><table class="vst2"><tr><th></th>${st.rounds.map(r=>`<th>${emo(MODE_INFO(r)[2])}</th>`).join("")}<th>Total</th></tr>${order.map((u,k)=>`<tr${u.id===me?' class="me"':""}><td>${["🥇","🥈","🥉"][k]||k+1+"."} ${esc(u.id===me?"You":u.name||"Player")}</td>${st.rounds.map((r,i)=>`<td>${cell(u,i)}</td>`).join("")}<td><b>${vsTotal(u.id)}</b></td></tr>`).join("")}</table></div>
