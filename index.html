@@ -100,6 +100,17 @@ nav button .ok{color:var(--green);font-size:13px}
 .vsmid{text-align:center;display:flex;flex-direction:column;align-items:center}.vsmid small{color:var(--muted);font-size:12px}.vst{font-size:20px;font-weight:800;color:var(--gold);font-variant-numeric:tabular-nums}
 .vstrack{height:5px;background:var(--line);border-radius:3px;margin-top:10px;overflow:hidden}.vstrack i{display:block;height:100%;background:linear-gradient(90deg,#e05252,var(--gold));transition:width 1s linear}
 .vscd{text-align:center}.vscd .cd{font-size:64px;font-weight:900;color:var(--gold);margin:6px 0}
+.ov{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.62);display:flex;justify-content:center;align-items:flex-start;padding:16px;overflow:auto}
+.ovc{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px;width:100%;max-width:980px;margin:auto 0}
+.ovh{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px}.ovt{display:flex;gap:6px}
+.ovt button,.ovx{font:inherit;font-weight:700;font-size:14px;color:var(--muted);background:none;border:1px solid var(--line);border-radius:999px;padding:6px 14px;cursor:pointer}
+.ovt button.on{color:var(--ink);border-color:var(--gold)}.ovx{padding:6px 11px}
+.ovq{width:100%;box-sizing:border-box;font:inherit;font-size:15px;color:var(--ink);background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:9px 12px;margin-bottom:6px}
+.ovn{margin:4px 0 8px;text-align:left}.ovlock{padding:30px 0}
+.ovw{overflow:auto;max-height:70vh;border:1px solid var(--line);border-radius:10px}
+.ovtb{border-collapse:collapse;width:100%;font-size:13px}.ovtb th,.ovtb td{padding:7px 9px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
+.ovtb th{position:sticky;top:0;background:var(--panel2);font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);cursor:pointer;white-space:nowrap;user-select:none}.ovtb th.on{color:var(--gold)}
+.ovnm{white-space:nowrap;font-weight:700;position:sticky;left:0;background:var(--panel);z-index:1}.ovtb th:first-child{left:0;z-index:2}.ovnm img{width:26px;height:26px;border-radius:6px;vertical-align:middle;margin-right:8px}
 .vsres{text-align:center}.vsscore{font-size:16px;margin:4px 0 10px}.vst2 tr.me td{color:var(--gold)}.vst2 th{font-weight:600}.vst2 small{color:var(--mut,#8a8f98);font-size:11px}.vst2{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px}.vst2 td,.vst2 th{padding:7px 6px;border-bottom:1px solid var(--line)}.vst2 td:first-child{text-align:left}.vst2 small{color:var(--muted);margin-left:4px}.vst2 .x{color:var(--muted)}
 .place{margin-top:6px;font-size:15px}.place:empty{display:none}
 .voice{margin-top:10px}.voice .btn{font-size:14px;padding:8px 14px}
@@ -565,10 +576,10 @@ function guessesHtml(t){
 function winHtml(t){
   if(S.vs)return vsRoundEndHtml(t);
   if(S.gaveUp)return `<div class="card win"><img class="big" src="${icon(t)}" alt=""><p class="wsub">The answer was</p><h2>${esc(t.name)}</h2><p class="pts">0 points${S.random?"":" today in this mode"}</p>
-  <div class="btns"><button class="btn" id="randB" type="button">Play a random one</button>${nextMode()?`<button class="btn" id="nextB" type="button">Next: ${nextMode()[1]}</button>`:""}</div></div>`;
+  <div class="btns"><button class="btn" id="randB" type="button">Play a random one</button><button class="btn" id="infoB" type="button">📖 Info</button>${nextMode()?`<button class="btn" id="nextB" type="button">Next: ${nextMode()[1]}</button>`:""}</div></div>`;
   const n=S.guesses.length;
   return `<div class="card win"><img class="big" src="${icon(t)}" alt=""><h2>${esc(t.name)}</h2><p class="wsub">${S.extra&&(!HASBONUS(mode)||S.bonus!=null)?esc(S.extra)+" · ":""}Found in ${n} guess${n===1?"":"es"}</p>${S.guesses[n-1]!==S.target?`<p class="hint">You guessed <b>${esc(S.guesses[n-1])}</b>, which matches on every column, so it counts!</p>`:""}${mode==="ability"?bonusHtml():mode==="splash"?`<div id="skB"></div>`:""}<p class="pts">+${total()} points${HASBONUS(mode)&&S.bonus===1?" (incl. +20 bonus)":""}${S.random?" (random rounds don't count)":""}</p><p class="place" id="wPlace"></p>
-  <div class="btns"><button class="btn pri" id="shareB" type="button">Copy result</button><button class="btn" id="randB" type="button">Play a random one</button>${nextMode()?`<button class="btn" id="nextB" type="button">Next: ${nextMode()[1]}</button>`:""}</div><textarea class="share" id="shareT" rows="5" readonly aria-label="Result to share"></textarea></div>`;
+  <div class="btns"><button class="btn pri" id="shareB" type="button">Copy result</button><button class="btn" id="randB" type="button">Play a random one</button><button class="btn" id="infoB" type="button">📖 Info</button>${nextMode()?`<button class="btn" id="nextB" type="button">Next: ${nextMode()[1]}</button>`:""}</div><textarea class="share" id="shareT" rows="5" readonly aria-label="Result to share"></textarea></div>`;
 }
 // Ability bonus: after finding the champion, one try at Passive/Q/W/E/R for +20.
 function bonusHtml(){
@@ -644,8 +655,39 @@ async function afterRender(t,wrong){
   if(S.done&&!S.vs&&!S.random&&SESSION&&scopeId())setTimeout(async()=>{try{const r=await api(`/live?mode=${mode}&scope=channel&id=${scopeId()}&day=${S.day}`);const d=(r.rows||[]).filter(x=>x.done),i=ME?d.findIndex(x=>x.id===ME.id):-1,el=$("wPlace");
       if(el&&i>=0)el.innerHTML=`${["🥇","🥈","🥉"][i]||"#"+(i+1)} <b>${i+1}${["st","nd","rd"][i]||"th"} place</b> in this channel today${d.length>1?` (of ${d.length} so far)`:""}`;}catch(_){}},700);
   if(S.done&&!S.vs){
-    const sb=$("shareB");if(sb)sb.onclick=share;$("randB").onclick=randomRound;const nb=$("nextB");if(nb)nb.onclick=()=>{mode=nextMode()[0];start();};
+    const sb=$("shareB");if(sb)sb.onclick=share;const ib=$("infoB");if(ib)ib.onclick=()=>openInfo(mode==="item"?"item":"champ");$("randB").onclick=randomRound;const nb=$("nextB");if(nb)nb.onclick=()=>{mode=nextMode()[0];start();};
   }
+}
+// ---------- Info: browse champion and item data ----------
+// Only unlocked for today's puzzle once it's finished (Classic → champions, Item → items), so it can't be used to look up answers.
+const IV={tab:"champ",q:"",sort:{champ:["name",1],item:["name",1]}};
+const infoOpen=t=>t==="champ"?dailyDone("classic"):dailyDone("item");
+async function openInfo(tab){
+  if(VS)return;IV.tab=tab||IV.tab;IV.q="";
+  if(!ITEMS)await loadItems().catch(()=>{});
+  let ov=$("infoOv");if(!ov){ov=document.createElement("div");ov.id="infoOv";ov.className="ov";document.body.appendChild(ov);
+    ov.addEventListener("click",e=>{if(e.target===ov)closeInfo();});document.addEventListener("keydown",e=>{if(e.key==="Escape"&&$("infoOv"))closeInfo();});}
+  ov.innerHTML=`<div class="ovc" role="dialog" aria-label="Info"><div class="ovh"><div class="ovt">${[["champ","Champions"],["item","Items"]].map(([k,l])=>`<button type="button" data-it="${k}">${l}</button>`).join("")}</div><button type="button" class="ovx" id="infoX" aria-label="Close">✕</button></div>
+    <input id="infoQ" class="ovq" placeholder="Search…" autocomplete="off" spellcheck="false" aria-label="Search"><div id="infoB2"></div></div>`;
+  $("infoX").onclick=closeInfo;ov.querySelectorAll("[data-it]").forEach(b=>b.onclick=()=>{IV.tab=b.dataset.it;IV.q="";$("infoQ").value="";drawInfo();});
+  $("infoQ").oninput=e=>{IV.q=e.target.value;drawInfo();};document.body.style.overflow="hidden";drawInfo();
+}
+function closeInfo(){const ov=$("infoOv");if(ov)ov.remove();document.body.style.overflow="";}
+function drawInfo(){
+  const t=IV.tab,box=$("infoB2");if(!box)return;
+  document.querySelectorAll("[data-it]").forEach(b=>b.classList.toggle("on",b.dataset.it===t));
+  $("infoQ").hidden=!infoOpen(t);
+  if(!infoOpen(t)){box.innerHTML=`<p class="hint ovlock">🔒 Finish today's ${t==="champ"?"Classic":"Item"} puzzle to unlock ${t==="champ"?"champion":"item"} info.</p>`;return;}
+  const C=t==="champ"?[["name","Champion"],["gender","Gender"],["pos","Position(s)"],["species","Species"],["resource","Resource"],["range","Range"],["regions","Region(s)"],["year","Release"]]
+    :[["name","Item"],["cost","Price"],["type","Type"],["stats","Stats"],["act","Active"],["from","Builds from"]];
+  const val=(x,k)=>t==="champ"?(k==="name"?x.name:k==="year"?x.info.year:[].concat(x.info[k]).join(", ")):(k==="name"?x.name:k==="cost"?x.cost:k==="stats"?stats(x).join(", "):k==="act"?(x.act?"Yes":"No"):k==="from"?x.from.join(", "):x[k]);
+  const show=(x,k)=>k==="cost"?gold(x.cost)+" g":k==="from"&&!x.from.length?"–":k==="stats"&&!stats(x).length?"–":esc(String(val(x,k)));
+  const [sk,dir]=IV.sort[t],q=norm(IV.q);
+  const L=(t==="champ"?CH.filter(c=>c.info):ITEMS||[]).filter(x=>!q||norm(x.name).includes(q)).slice()
+    .sort((a,b)=>{const A=val(a,sk),B=val(b,sk);return (typeof A==="number"?A-B:String(A).localeCompare(String(B)))*dir||a.name.localeCompare(b.name);});
+  box.innerHTML=`<p class="hint ovn">${L.length} ${t==="champ"?"champions":"items"} · tap a column to sort</p><div class="ovw"><table class="ovtb"><thead><tr>${C.map(([k,l])=>`<th data-sk="${k}" class="${k===sk?"on":""}">${l}${k===sk?(dir>0?" ▲":" ▼"):""}</th>`).join("")}</tr></thead><tbody>${
+    L.map(x=>`<tr>${C.map(([k])=>k==="name"?`<td class="ovnm"><img src="${icon(x)}" alt="" loading="lazy">${esc(x.name)}</td>`:`<td>${show(x,k)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+  box.querySelectorAll("[data-sk]").forEach(h=>h.onclick=()=>{const k=h.dataset.sk;IV.sort[t]=[k,IV.sort[t][0]===k?-IV.sort[t][1]:1];drawInfo();});
 }
 function shareText(){
   const t=T(S.target),lbl=MODES.find(m=>m[0]===mode)[1];
