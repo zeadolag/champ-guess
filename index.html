@@ -135,6 +135,11 @@ body.homev #modes,body.homev #sub{display:none}body.homev .logo .lt{--s:clamp(34
 .hvs b,.hinfo b{font-size:16px}.hvs small,.hinfo small{color:var(--muted);font-size:12.5px}.hvs em{font-style:normal;font-weight:800;color:var(--gold);white-space:nowrap;font-size:14px}
 @media(max-width:640px){.htiles{grid-template-columns:repeat(3,1fr)}.hmore{grid-template-columns:1fr}.hero{gap:16px;padding:16px}.hring-w{width:92px;height:92px}.hring-t b{font-size:24px}}
 @media(max-width:400px){.hero{flex-direction:column;text-align:center}.hero-t,.hero-t h2{text-align:center}.hmeta{justify-content:center}}
+.vsmodes{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0 4px;text-align:left}.vsmodes div{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--panel2)}.vsmodes b{display:block}.vsmodes small{color:var(--muted);font-size:12.5px}
+.vsblz{background:linear-gradient(135deg,#ffb547,#e84057)!important;color:#1a0a0a!important;border-color:transparent!important}
+.blz{font-size:12px;font-weight:800;vertical-align:middle;color:#1a0a0a;background:linear-gradient(135deg,#ffb547,#e84057);border-radius:999px;padding:2px 9px;margin-left:4px}
+.vst.hurry{color:#ff6b6b;animation:hur .6s ease-in-out infinite alternate}@keyframes hur{to{opacity:.55}}
+@media(max-width:520px){.vsmodes{grid-template-columns:1fr}}
 .vsres{text-align:center}.vsscore{font-size:16px;margin:4px 0 10px}.vst2 tr.me td{color:var(--gold)}.vst2 th{font-weight:600}.vst2 small{color:var(--mut,#8a8f98);font-size:11px}.vst2{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px}.vst2 td,.vst2 th{padding:7px 6px;border-bottom:1px solid var(--line)}.vst2 td:first-child{text-align:left}.vst2 small{color:var(--muted);margin-left:4px}.vst2 .x{color:var(--muted)}
 .place{margin-top:6px;font-size:15px}.place:empty{display:none}
 .voice{margin-top:10px}.voice .btn{font-size:14px;padding:8px 14px}
@@ -566,7 +571,7 @@ function home(){
   <div class="htiles">${MODES.map(([k,l,e],i)=>`<button type="button" class="htile ${sts[i].k}" data-hm="${k}" title="${esc(MODE_DESC[k])}"><span class="hic">${emo(e)}${sts[i].k==="ok"?'<i class="hck">✓</i>':sts[i].k==="go"?'<i class="hdot"></i>':""}</span><b>${l}</b><small>${sts[i].k==="ok"?sts[i].p+" pts":sts[i].k==="go"?"In progress":sts[i].k==="gu"?"Gave up":"Play"}</small></button>`).join("")}</div>
   <h3 class="hsec">More</h3>
   <div class="hmore">
-    <button type="button" class="hvs" id="hVs"><span class="hic">${emo("⚔️")}</span><span><b>Versus</b><small>Race 2–8 friends live through one round of every mode</small></span><em>${IN_DISCORD?"Play":"Discord only"} →</em></button>
+    <button type="button" class="hvs" id="hVs"><span class="hic">${emo("⚔️")}</span><span><b>Versus</b><small>Race 2–8 friends live through every mode · Normal or ⚡ Blitz</small></span><em>${IN_DISCORD?"Play":"Discord only"} →</em></button>
     <button type="button" class="hinfo" id="hInfo"><span class="hic">${emo("📖")}</span><span><b>Info</b><small>${dailyDone("classic")?"Champions ✓":"Champions 🔒"} · ${dailyDone("item")?"Items ✓":"Items 🔒"}</small></span></button>
   </div>`;
   $("game").querySelectorAll("[data-hm]").forEach(b=>b.onclick=()=>{mode=b.dataset.hm;start();});
@@ -767,19 +772,20 @@ async function share(){
 let VS=null;
 const vsNow=()=>Date.now()+(VS?VS.off:0);
 const MODE_INFO=m=>MODES.find(x=>x[0]===m);
-const vsCreateMatch=async()=>{const r=await api("/vs/create",{method:"POST",body:JSON.stringify({channel:CTX.channel,guild:CTX.guild})});if(r.id){VS.st=null;vsEnter(r.id);}};
+const vsCreateMatch=async blitz=>{const r=await api("/vs/create",{method:"POST",body:JSON.stringify({channel:CTX.channel,guild:CTX.guild,blitz:blitz===true})});if(r.id){VS.st=null;vsEnter(r.id);}};
 function vsExit(){if(!VS)return;clearInterval(VS.poll);if(VS.id&&VS.st&&VS.st.match.status==="waiting")api("/vs/leave",{method:"POST",body:JSON.stringify({id:VS.id})}).catch(()=>{});VS=null;S=null;}
 function vsLobby(){
   if(VS)vsExit();VS={id:null,st:null,poll:null,rk:null,off:0,shown:null};renderSocial();renderNav();$("sub").textContent="VS: race your friends through every mode";
   if(!SESSION){$("game").innerHTML=`<div class="card"><h2>⚔️ VS</h2><p class="hint">VS needs Discord sign-in. Open Leagledle from the Apps button in a Discord channel to play.</p></div>`;return;}
-  $("game").innerHTML=`<div class="card vsl"><h2>⚔️ VS</h2><p class="hint">Race 1–7 friends through one random puzzle in every mode: ${MODES.map(m=>emo(m[2])).join(" ")}<br>90 seconds per round. Fewer guesses and a faster solve = more points. Highest total wins and gains VS Elo.</p>
-    <div class="btns"><button class="btn pri" id="vsNew" type="button">Create match</button></div><div id="vsOpenL"></div></div>
+  $("game").innerHTML=`<div class="card vsl"><h2>⚔️ VS</h2><p class="hint">Race 1–7 friends through one random puzzle in every mode: ${MODES.map(m=>emo(m[2])).join(" ")}<br>Fewer guesses and a faster solve = more points. Highest total wins and gains VS Elo.</p>
+    <div class="vsmodes"><div><b>Normal</b><small>90 seconds per round</small></div><div><b>⚡ Blitz</b><small>30 seconds per round. Once someone solves it, everyone else has 10 seconds left</small></div></div>
+    <div class="btns"><button class="btn pri" id="vsNew" type="button">Create match</button><button class="btn pri vsblz" id="vsNewB" type="button">⚡ Create Blitz match</button></div><div id="vsOpenL"></div></div>
     <div class="card vsl"><h3>VS ladder</h3><div id="vsBoardL"><p class="hint">Loading…</p></div></div>`;
-  $("vsNew").onclick=vsCreateMatch;
+  $("vsNew").onclick=()=>vsCreateMatch(false);$("vsNewB").onclick=()=>vsCreateMatch(true);
   const lobby=async()=>{if(!VS||VS.id)return;
     const o=await api(`/vs/open?channel=${CTX.channel||""}`).catch(()=>({rows:[]}));const el=$("vsOpenL");if(!el||!VS||VS.id)return;
     const rows=o.rows||[],max=o.max||8;
-    el.innerHTML=rows.length?`<p class="hint" style="margin-top:14px">Open matches in this channel:</p>`+rows.map(r=>`<div class="srow"><img src="${avatar({id:r.uid,avatar:r.avatar})}" alt=""><span class="nm">${esc(r.name)}'s match<small>${r.players||1}/${max} players</small></span>${ME&&r.uid===ME.id?`<button class="btn sm" data-vsj="${esc(r.id)}" type="button">Open</button>`:`<button class="btn pri sm" data-vsj="${esc(r.id)}" type="button"${(r.players||1)>=max?" disabled":""}>Join</button>`}</div>`).join(""):`<p class="hint" style="margin-top:14px">No open matches here yet. Create one and invite your friends.</p>`;
+    el.innerHTML=rows.length?`<p class="hint" style="margin-top:14px">Open matches in this channel:</p>`+rows.map(r=>`<div class="srow"><img src="${avatar({id:r.uid,avatar:r.avatar})}" alt=""><span class="nm">${esc(r.name)}'s ${r.blitz?"⚡ Blitz ":""}match<small>${r.players||1}/${max} players</small></span>${ME&&r.uid===ME.id?`<button class="btn sm" data-vsj="${esc(r.id)}" type="button">Open</button>`:`<button class="btn pri sm" data-vsj="${esc(r.id)}" type="button"${(r.players||1)>=max?" disabled":""}>Join</button>`}</div>`).join(""):`<p class="hint" style="margin-top:14px">No open matches here yet. Create one and invite your friends.</p>`;
     el.querySelectorAll("[data-vsj]").forEach(b=>b.onclick=async()=>{const r=await api("/vs/join",{method:"POST",body:JSON.stringify({id:b.dataset.vsj})});if(r.ok)vsEnter(b.dataset.vsj);else alertMsg(r.error||"Couldn't join");});};
   lobby();VS.poll=setInterval(lobby,3000);
   api(`/vs/board?id=${CTX.guild||CTX.channel||""}`).then(b=>{const el=$("vsBoardL");if(!el)return;el.innerHTML=(b.rows||[]).length?b.rows.map((u,i)=>`<div class="srow${ME&&u.id===ME.id?" me":""}"><span class="rk">${i+1}</span><img src="${avatar(u)}" alt=""><span class="nm">${esc(u.name)}<small>${rankPill(u.elo)} ${rankOf(u.elo).lp} LP</small></span><span class="tm">${u.wins}W ${u.losses}L${u.draws?` ${u.draws}D`:""}</span></div>`).join(""):`<p class="hint">No VS matches played here yet. Everyone starts in Gold II.</p>`;}).catch(()=>{});
@@ -804,7 +810,7 @@ async function vsUpdate(){
   }
   const now=vsNow();
   if(!VS.started&&now>=m.round_started){VS.started=true;render();return;}
-  if(VS.started&&!S.done&&now>=m.round_started+r.dur){S.done=true;S.timeout=true;render();return;}
+  if(VS.started&&!S.done&&now>=vsEnd()){S.done=true;S.timeout=true;render();return;}
   const bar=$("vsBar");if(bar)bar.outerHTML=vsBarHtml();
   const we=$("vsWait");if(we)we.innerHTML=vsWaitText();const vp=$("vsPts");if(vp)vp.textContent=vsPtsText();
   const cd=$("vsCd");if(cd)cd.textContent=Math.max(1,Math.ceil((m.round_started-now)/1000));
@@ -813,7 +819,7 @@ async function vsUpdate(){
 function vsKeepPrev(){if(S&&S.vs&&S.target&&VS.rk){const t=T(S.target);if(t)VS.prev={t,solved:S.done&&!S.timeout,mode};}}
 function vsWaitScreen(){
   const st=VS.st,m=st.match,host=ME&&m.host===ME.id,n=st.players.length;
-  $("game").innerHTML=`<div class="card vsl"><h2>⚔️ ${host?"Your match":"Waiting for the host"}</h2><p class="hint">${host?`Friends open Leagledle in this channel, tap <b>VS</b> and join. Start when everyone's in (2–${st.max} players).`:"The host starts the match when everyone's in."}</p>
+  $("game").innerHTML=`<div class="card vsl"><h2>${m.blitz?"⚡":"⚔️"} ${host?"Your match":"Waiting for the host"}${m.blitz?` <span class="blz">Blitz</span>`:""}</h2><p class="hint">${host?`Friends open Leagledle in this channel, tap <b>VS</b> and join. Start when everyone's in (2–${st.max} players).`:"The host starts the match when everyone's in."}</p>
     <div class="vsps">${st.players.map(p=>`<span class="vsc${ME&&p.id===ME.id?" me":""}"><img src="${avatar(p)}" alt="">${esc(p.name||"Player")}${p.id===m.host?" 👑":""}</span>`).join("")}</div>
     <p class="hint" style="margin-top:8px">${n}/${st.max} players</p>
     <div class="btns">${host?`<button class="btn pri" id="vsGo" type="button"${n<2?" disabled":""}>${n<2?"Waiting for players…":`Start with ${n} players`}</button>`:""}${SDK?`<button class="btn" id="vsInv" type="button">Invite friends</button>`:""}<button class="btn" id="vsCancel" type="button">${host?"Cancel match":"Leave"}</button></div></div>`;
@@ -827,11 +833,13 @@ function vsRow(uid,round){return VS.st.progress.find(p=>p.user_id===uid&&p.round
 function vsTotal(uid){return VS.st.progress.filter(p=>p.user_id===uid).reduce((a,p)=>a+p.points,0);}
 // Players by total points (highest first).
 function vsStandings(){return VS.st.players.slice().sort((a,b)=>vsTotal(b.id)-vsTotal(a.id));}
+// End of the current round: the server's deadline (Blitz pulls it forward after the first solve).
+const vsEnd=()=>{const st=VS.st,m=st.match;return m.round_ends||m.round_started+st.dur;};
 function vsBarHtml(){
-  const st=VS.st,m=st.match,now=vsNow(),left=Math.max(0,m.round_started+st.dur-now),pct=now<m.round_started?100:left/st.dur*100;
+  const st=VS.st,m=st.match,now=vsNow(),left=Math.max(0,vsEnd()-now),pct=now<m.round_started?100:left/st.dur*100,cut=m.blitz&&m.round_ends&&m.round_ends<m.round_started+st.dur;
   const me=vsMeId(),mi=MODE_INFO(st.rounds[m.round]);
   const chip=u=>{const p=vsRow(u.id,m.round);return `<span class="vsc${u.id===me?" me":""}${p&&p.done?" ok":""}"><img src="${avatar(u)}" alt="">${esc(u.id===me?"You":u.name||"Player")} <b>${vsTotal(u.id)}</b><small>${p?(p.done?"✓":`${p.guesses}g`):"…"}</small></span>`;};
-  return `<div class="card vsbar" id="vsBar"><div class="vsmid"><b>Round ${m.round+1}/${st.rounds.length}</b><small>${emo(mi[2])} ${mi[1]}</small><span class="vst">${now<m.round_started?"Get ready":Math.ceil(left/1000)+"s"}</span></div><div class="vsps">${vsStandings().map(chip).join("")}</div><div class="vstrack"><i style="width:${pct}%"></i></div></div>`;
+  return `<div class="card vsbar" id="vsBar"><div class="vsmid"><b>${m.blitz?"⚡ ":""}Round ${m.round+1}/${st.rounds.length}</b><small>${emo(mi[2])} ${mi[1]}</small><span class="vst${cut&&now>=m.round_started?" hurry":""}">${now<m.round_started?"Get ready":(cut?"Solved! ":"")+Math.ceil(left/1000)+"s"}</span></div><div class="vsps">${vsStandings().map(chip).join("")}</div><div class="vstrack"><i style="width:${pct}%"></i></div></div>`;
 }
 function vsPrevHtml(){const p=VS.prev;if(!p)return "";return `<div class="vsprev"><img src="${icon(p.t)}" alt=""><span class="hint">${p.solved?"✓ You got it:":"Last round's answer:"} <b>${esc(p.t.name)}</b></span></div>`;}
 function vsCountdownHtml(){const st=VS.st,m=st.match,mi=MODE_INFO(st.rounds[m.round]);return `<div class="card vscd">${vsPrevHtml()}<p class="hint" style="margin-top:12px">Next up</p><h2>${emo(mi[2])} ${mi[1]}</h2><p class="cd" id="vsCd">${Math.max(1,Math.ceil((m.round_started-vsNow())/1000))}</p></div>`;}
@@ -852,7 +860,7 @@ function vsResults(){
     ${mine.delta!=null&&rt!=null?`<p class="elo">${rankPill(rt)} ${rankOf(rt).lp} LP <b class="${mine.delta>=0?"up":"dn"}">${mine.delta>=0?"+":""}${Math.round(mine.delta*4)} LP</b></p>`:""}
     <div style="overflow-x:auto"><table class="vst2"><tr><th></th>${st.rounds.map(r=>`<th>${emo(MODE_INFO(r)[2])}</th>`).join("")}<th>Total</th></tr>${order.map((u,k)=>`<tr${u.id===me?' class="me"':""}><td>${["🥇","🥈","🥉"][k]||k+1+"."} ${esc(u.id===me?"You":u.name||"Player")}</td>${st.rounds.map((r,i)=>`<td>${cell(u,i)}</td>`).join("")}<td><b>${vsTotal(u.id)}</b></td></tr>`).join("")}</table></div>
     <div class="btns"><button class="btn pri" id="vsAgain" type="button">New match</button><button class="btn" id="vsBack" type="button">Back to VS</button></div></div>`;
-  $("vsAgain").onclick=vsCreateMatch;
+  $("vsAgain").onclick=()=>vsCreateMatch(!!VS.st.match.blitz);
   $("vsBack").onclick=vsLobby;
 }
 
