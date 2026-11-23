@@ -872,13 +872,15 @@ function vsResults(){
 // Tap an icon to cycle: nothing → ✗ ruled out → ★ maybe → nothing. Saved with the puzzle. No automatic filtering.
 let NOTES_OPEN=(()=>{try{return localStorage.getItem("cg-notes-open")==="1";}catch(_){return false;}})(),NOTES_VIEW="all";
 // Each mode's notes grid shows only things that can be that mode's answer, with sort options that fit the mode.
-const NOTES_SORTS={classic:[["az","A–Z"],["pos","Role"]],item:[["az","A–Z"],["type","Type"],["stat","Stat"],["price","Price"]]};
+const CHAMP_SORTS=[["az","A–Z"],["pos","Role"],["gender","Gender"]];
+const NOTES_SORTS={classic:CHAMP_SORTS,ability:CHAMP_SORTS,splash:CHAMP_SORTS,item:[["az","A–Z"],["type","Type"],["stat","Stat"],["price","Price"]]};
 let NOTES_SORT=(()=>{try{return JSON.parse(localStorage.getItem("cg-notes-sort")||"{}");}catch(_){return {};}})();
 const notesSortKey=()=>{const o=NOTES_SORTS[mode];return o?(o.find(x=>x[0]===NOTES_SORT[mode])||o[0])[0]:"az";};
 function notesGroups(){
   const base=(mode==="item"?pool("item"):mode==="quote"?pool("quote",S.random?null:S.day):CH.filter(c=>c.info)).slice().sort((a,b)=>a.name.localeCompare(b.name));
   if(S.guesses.length)for(const n of S.guesses){const g=T(n);if(g&&!base.includes(g))base.push(g);}
   const k=notesSortKey(),grp=(f,order)=>{const m=new Map();for(const c of base)for(const key of [].concat(f(c))){if(!m.has(key))m.set(key,[]);m.get(key).push(c);}return [...m.entries()].sort(order);};
+  if(k==="gender"){const O=["Male","Female"];return grp(c=>c.info.gender||"Other",(a,b)=>(O.indexOf(a[0])+1||9)-(O.indexOf(b[0])+1||9)||a[0].localeCompare(b[0]));}
   if(k==="year")return grp(c=>String(c.info.year),(a,b)=>a[0]-b[0]);
   if(k==="region")return grp(c=>c.info.regions,(a,b)=>a[0].localeCompare(b[0]));
   if(k==="pos"){const O=["Top","Jungle","Middle","Bottom","Support"];return grp(c=>c.info.pos,(a,b)=>O.indexOf(a[0])-O.indexOf(b[0]));}
