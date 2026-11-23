@@ -513,20 +513,40 @@ function quoteOf(t){if(!S.random&&S.day<NEWQ&&t.info&&t.info.quote)return [t.inf
 // Daily pick: replays every day from a fixed start date, never choosing anything picked in the
 // previous 10 days. Same result for everyone, since it only depends on the mode and the date.
 const EPOCH="2026-11-18",NOREPEAT=10,PICKS={},LATE={Locke:"2026-11-19",Zaahen:"2026-11-19"};
+// From NODUP on, a champion is also never the answer in two modes on the same day: the champion modes take
+// turns in DUP_ORDER, each skipping champions an earlier one already has. Quote goes last because it needs
+// the quote list loaded; the others never depend on it. Days before NODUP stay unchanged.
+const NODUP="2026-11-24",DUP_ORDER=["classic","ability","splash","emoji","quote"],CHAMP_MODES=new Set(DUP_ORDER);
 function dailyPick(m,day){
   const key=m+"|"+day;if(PICKS[key])return PICKS[key];
-  const recent=[];let d=EPOCH,res=null;
   if(day<EPOCH)return pick(m,day);
+  const recent={};let d=EPOCH;
+  const chain=CHAMP_MODES.has(m)?DUP_ORDER.slice(0,DUP_ORDER.indexOf(m)+1):[m];
   for(let i=0;i<4000;i++){
-    // Champions added to the list later only join the daily pool from that day on, so earlier days stay the same.
-    const P=pool(m,d),Pd=P.filter(x=>!(LATE[x.name]&&d<LATE[x.name]));
-    const r=rng(hash(m+"|"+d)),c=Pd.filter(x=>!recent.includes(x.name)),list=c.length?c:Pd;
-    res={target:list[Math.floor(r()*list.length)].name,r1:r(),r2:r(),r3:r()};
-    recent.push(res.target);if(recent.length>NOREPEAT)recent.shift();
+    const used=new Set();
+    for(const mm of chain){
+      // Champions added to the list later only join the daily pool from that day on, so earlier days stay the same.
+      const P=pool(mm,d),Pd=P.filter(x=>!(LATE[x.name]&&d<LATE[x.name])),rec=recent[mm]=recent[mm]||[];
+      const ok=x=>!(d>=NODUP&&CHAMP_MODES.has(mm)&&used.has(x.name));
+      const r=rng(hash(mm+"|"+d)),c=Pd.filter(x=>ok(x)&&!rec.includes(x.name)),c2=Pd.filter(ok),list=c.length?c:c2.length?c2:Pd;
+      const res={target:list[Math.floor(r()*list.length)].name,r1:r(),r2:r(),r3:r()};
+      rec.push(res.target);if(rec.length>NOREPEAT)rec.shift();
+      if(CHAMP_MODES.has(mm))used.add(res.target);
+      PICKS[mm+"|"+d]=res;
+    }
     if(d===day)break;
     const t=new Date(d+"T12:00:00");t.setDate(t.getDate()+1);d=t.getFullYear()+"-"+String(t.getMonth()+1).padStart(2,"0")+"-"+String(t.getDate()).padStart(2,"0");
   }
-  return PICKS[key]=res;
+  return PICKS[key];
+}
+// VS: every round of a match has a different champion.
+function vsPick(seed,round,rounds){
+  const used=new Set();let p;
+  for(let i=0;i<=round;i++){
+    const m=rounds[i];p=pick(m,"vs|"+seed+"|"+i);
+    if(CHAMP_MODES.has(m)){for(let k=1;used.has(p.target)&&k<50;k++)p=pick(m,"vs|"+seed+"|"+i+"|"+k);used.add(p.target);}
+  }
+  return p;
 }
 function pick(m,seedStr){const P=pool(m);const r=rng(hash(m+"|"+seedStr));return {target:P[Math.floor(r()*P.length)].name,r1:r(),r2:r(),r3:r()};}
 const skey=()=>S&&S.vs?"cg-vs-round":(S&&S.random?"cg-r-":"cg-")+mode;
@@ -542,6 +562,8 @@ function start(){
 }
 // Random rounds avoid the last 30 random answers in this mode (and today's daily answer).
 function randomRound(){const rec=load("cg-recent-"+mode)||[],d=load("cg-"+mode),avoid=new Set(rec.concat(d&&d.target?[d.target]:[]));
+  // ...and today's answers in the other champion modes.
+  if(CHAMP_MODES.has(mode))for(const m of CHAMP_MODES)if(m!=="quote"||QUOTES)avoid.add(dailyPick(m,today()).target);
   let p;for(let i=0;i<40;i++){p=pick(mode,String(Math.random()));if(!avoid.has(p.target))break;}
   save("cg-recent-"+mode,rec.concat(p.target).slice(-30));S={day:today(),random:true,target:p.target,r:[p.r1,p.r2,p.r3],guesses:[],done:false};save(skey(),S);render();}
 // ---------- Home screen ----------
@@ -680,7 +702,7 @@ async function afterRender(t,wrong){
     // From Nov 20: use Riot's "centered" splash (cropped around the champion) and zoom near the middle,
     // so the start is on the champion instead of random background.
     const centered=S.random||S.day>="2026-11-20";
-    const z=S.done?1:Math.max(1.6,8.5-wrong*1);
+    const z=S.done?1:Math.max(1.4,5-wrong*0.6);
     // Centered splash: start anywhere inside a circle around the champion (not always dead centre).
     const circ=()=>{const ang=S.r[1]*2*Math.PI,d=30*Math.sqrt(S.r[2]);return [50+d*Math.cos(ang),45+d*Math.sin(ang)*1.4];};
     const setOrigin=c=>{const [x,y]=c?circ():[15+S.r[1]*70,15+S.r[2]*70];im.style.transformOrigin=`${Math.max(8,Math.min(92,x))}% ${Math.max(8,Math.min(92,y))}%`;};
@@ -808,7 +830,7 @@ async function vsUpdate(fetchNow){
   if(VS.rk!==rk){
     vsKeepPrev();VS.rk=rk;VS.started=false;
     await Promise.all([ITEMS?null:loadItems(),QUOTES?null:loadQuotes()]).catch(()=>{});
-    mode=r.rounds[m.round];const p=pick(mode,"vs|"+m.seed+"|"+m.round);
+    mode=r.rounds[m.round];const p=vsPick(m.seed,m.round,r.rounds);
     S={vs:true,random:true,day:today(),target:p.target,r:[p.r1,p.r2,p.r3],guesses:[],done:false};renderNav();render();return;
   }
   const now=vsNow();
