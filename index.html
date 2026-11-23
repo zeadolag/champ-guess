@@ -506,6 +506,8 @@ function pool(m,day){if(m==="item")return ITEMS.filter(i=>i.depth>=2||i.cost>=10
   return m==="classic"?CH.filter(c=>c.info):m==="emoji"?CH.filter(c=>c.info):CH;}
 // Voice lines come from the League wiki, streamed through our server (/api/voice) so Discord doesn't need
 // an extra URL mapping. The wiki has an .mp3 copy of every .ogg, which iPhones and iPads need.
+// Our server, also outside Discord (used for HD splash art).
+const SPLASH_API=API||"https://leagledle.ziadaltalli.workers.dev",WIKI_NAME={"Nunu & Willump":"Nunu"};
 const VOICE=fn=>{const f=encodeURIComponent(fn),w="https://wiki.leagueoflegends.com/en-us/images";
   return API?[`${API}/voice?f=${f}&t=mp3`,`${API}/voice?f=${f}&t=ogg`]:[`${w}/transcoded/${f}.ogg/${f}.ogg.mp3`,`${w}/${f}.ogg`];};
 const QTYPE={pick:"when picked",ban:"when banned",move:"while moving",attack:"while attacking",taunt:"as a taunt",joke:"as a joke",kill:"after a kill",encounter:"on meeting an enemy",recall:"while recalling",respawn:"on respawning"};
@@ -699,21 +701,27 @@ async function afterRender(t,wrong){
     // Chromas only recolour the model and share their skin's splash, so they're left out.
     const skins=d.skins.filter(x=>x.parentSkin==null);
     const sk=skins[Math.floor(S.r[0]*skins.length)],im=$("spImg");if(!im)return;
-    // From Nov 20: use Riot's "centered" splash (cropped around the champion) and zoom near the middle,
-    // so the start is on the champion instead of random background.
+    // HD art comes from the League wiki through our server (/splash); it's the full uncropped splash, so the
+    // zoom starts somewhere in its middle: the middle 3 of 5 columns and the middle 2 of 4 rows.
+    // If there's no HD file, fall back to Riot's "centered" splash (cropped around the champion).
     const centered=S.random||S.day>="2026-11-20";
-    const z=S.done?1:Math.max(1.4,5-wrong*0.6);
+    const z=S.done?1:Math.max(1.4,6.5-wrong*0.8);
+    const hdKey=sk.num===0?"Original":sk.name.replace(t.name,"").replace(/\s+/g,""),cn=(WIKI_NAME[t.name]||t.name).replace(/ /g,"_");
+    const hdFiles=[...new Set([hdKey,hdKey.replace(/[\/:]/g,""),hdKey.replace(/[^\p{L}\p{N}]/gu,"")])].map(k=>`${cn}_${k}Skin_HD.jpg`);
+    const hdSrc=`${SPLASH_API}/splash?w=2560&f=${hdFiles.map(encodeURIComponent).join("|")}`;
     // Centered splash: start anywhere inside a circle around the champion (not always dead centre).
     const circ=()=>{const ang=S.r[1]*2*Math.PI,d=30*Math.sqrt(S.r[2]);return [50+d*Math.cos(ang),45+d*Math.sin(ang)*1.4];};
-    const setOrigin=c=>{const [x,y]=c?circ():[15+S.r[1]*70,15+S.r[2]*70];im.style.transformOrigin=`${Math.max(8,Math.min(92,x))}% ${Math.max(8,Math.min(92,y))}%`;};
-    im.onerror=centered?()=>{im.onerror=null;setOrigin(false);im.src=`${DD}/cdn/img/champion/splash/${t.id}_${sk.num}.jpg`;}:null;
+    const setOrigin=c=>{const [x,y]=c==="hd"?[20+S.r[1]*60,25+S.r[2]*50]:c?circ():[15+S.r[1]*70,15+S.r[2]*70];im.style.transformOrigin=`${Math.max(8,Math.min(92,x))}% ${Math.max(8,Math.min(92,y))}%`;};
+    // HD → Riot's centered splash → Riot's full splash. A slow HD load (over 8 s) also falls back.
+    const toRiot=()=>{clearTimeout(SPZ.hdT);setOrigin(centered);im.onerror=centered?()=>{im.onerror=null;setOrigin(false);im.src=`${DD}/cdn/img/champion/splash/${t.id}_${sk.num}.jpg`;}:null;im.src=`${DD}/cdn/img/champion/${centered?"centered":"splash"}/${t.id}_${sk.num}.jpg`;};
     // The image element is rebuilt on every guess: start it hidden at the previous zoom (no animation),
     // then animate to the new zoom once it has loaded, so it never flashes zoomed out.
     const key=t.id+"_"+sk.num,from=SPZ.key===key?SPZ.z:z;SPZ.key=key;SPZ.z=z;
-    im.style.transition="none";setOrigin(centered);im.style.transform=`scale(${from})`;
-    const show=()=>{im.style.opacity="1";requestAnimationFrame(()=>requestAnimationFrame(()=>{im.style.transition="";im.style.transform=`scale(${z})`;}));};
+    im.style.transition="none";im.style.transform=`scale(${from})`;
+    const show=()=>{clearTimeout(SPZ.hdT);im.style.opacity="1";requestAnimationFrame(()=>requestAnimationFrame(()=>{im.style.transition="";im.style.transform=`scale(${z})`;}));};
     im.onload=show;
-    im.src=`${DD}/cdn/img/champion/${centered?"centered":"splash"}/${t.id}_${sk.num}.jpg`;
+    if(SPZ.noHD!==key){setOrigin("hd");im.onerror=()=>{SPZ.noHD=key;toRiot();};clearTimeout(SPZ.hdT);SPZ.hdT=setTimeout(()=>{if(!(im.complete&&im.naturalWidth)){SPZ.noHD=key;toRiot();}},8000);im.src=hdSrc;}
+    else toRiot();
     if(im.complete&&im.naturalWidth)show();
     const skName=x=>x.num===0?"Default":x.name;
     S.extra=sk.num===0?"Default skin":sk.name;

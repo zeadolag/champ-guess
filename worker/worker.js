@@ -50,6 +50,7 @@ export default {
       if (path === "/vs/open" && req.method === "GET") return await vsOpen(url, env);
       if (path === "/vs/board" && req.method === "GET") return await vsBoard(url, env);
       if (path === "/voice" && req.method === "GET") return await voice(req, url);
+      if (path === "/splash" && req.method === "GET") return await splashHD(req, url, ctx);
       if (path === "/" ) return json({ ok: true, name: "Leagledle API" });
       return json({ error: "not found" }, 404);
     } catch (e) {
@@ -75,6 +76,40 @@ async function voice(req, url) {
   out.set("Content-Type", r.ok ? (url.searchParams.get("t") === "ogg" ? "audio/ogg" : "audio/mpeg") : "text/plain");
   for (const k of ["Content-Length", "Content-Range"]) { const v = r.headers.get(k); if (v) out.set(k, v); }
   return new Response(r.body, { status: r.status, headers: out });
+}
+
+// ---------- HD splash art ----------
+// The League wiki keeps full-size splash art ("<Champion>_<Skin>Skin_HD.jpg", 5000-10000 px wide). The game asks
+// for one or more candidate file names; the first that exists is served as a resized copy (w px wide),
+// cached at Cloudflare's edge so each image is only fetched from the wiki once. 404 if none exist,
+// and the game falls back to Riot's normal splash.
+const WIKI = "https://wiki.leagueoflegends.com/en-us";
+async function splashHD(req, url, ctx) {
+  const cache = caches.default, key = new Request(url.toString(), { method: "GET" });
+  const hit = await cache.match(key); if (hit) return hit;
+  const files = String(url.searchParams.get("f") || "").split("|").filter(f => /^[\p{L}\p{N}_'().,&!+:-]{1,160}Skin_HD\.jpg$/u.test(f)).slice(0, 4);
+  const w = [1280, 1920, 2560, 3200].includes(+url.searchParams.get("w")) ? +url.searchParams.get("w") : 1920;
+  const h = { "User-Agent": "Leagledle/1.0 (Discord Activity)" };
+  const miss = () => new Response("no HD splash", { status: 404, headers: { "Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=86400" } });
+  if (!files.length) return miss();
+  // One API call tells which candidate files exist.
+  const api = await fetch(`${WIKI}/api.php?action=query&format=json&prop=imageinfo&iiprop=size&titles=${encodeURIComponent(files.map(f => "File:" + f).join("|"))}`, { headers: h, cf: { cacheTtl: 86400, cacheEverything: true } }).catch(() => null);
+  if (!api || !api.ok) return miss();
+  const q = (await api.json().catch(() => ({}))).query || {};
+  const have = new Map();
+  for (const pg of Object.values(q.pages || {})) if (pg.imageinfo && pg.imageinfo[0]) have.set(pg.title.replace(/^File:/, "").replace(/ /g, "_"), pg.imageinfo[0].width);
+  const file = files.find(f => have.has(f));
+  let out;
+  if (!file) out = miss();
+  else {
+    const e = encodeURIComponent(file), full = have.get(file) <= w;
+    const src = full ? `${WIKI}/images/${e}` : `${WIKI}/images/thumb/${e}/${w}px-${e}`;
+    const r = await fetch(src, { headers: h, cf: { cacheTtl: 2592000, cacheEverything: true } });
+    if (!r.ok) return miss();
+    out = new Response(r.body, { status: 200, headers: { "Content-Type": "image/jpeg", "Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=2592000" } });
+  }
+  if (ctx) ctx.waitUntil(cache.put(key, out.clone()).catch(() => {}));
+  return out;
 }
 
 // ---------- login ----------
